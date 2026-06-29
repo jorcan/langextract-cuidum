@@ -1,0 +1,30 @@
+# =============================================================================
+# LangExtract-Cuidum: Configuration
+# =============================================================================
+
+# LLM Configuration
+llm:
+  provider: deepseek          # deepseek, openai, gemini
+  model: deepseek-chat        # deepseek-chat, deepseek-reasoner
+  temperature: 0.1            # Low for deterministic extraction
+  max_tokens: 4096
+
+# DeepSeek API
+deepseek:
+  api_key_env: DEEPSEEK_API_KEY  # Environment variable name
+  base_url: https://api.deepseek.com
+
+# Odoo Cuidum PostgreSQL
+cuidum_db:
+  target: cuidum               # MCP postgres target name
+
+# Pipeline settings
+pipeline:
+  batch_size: 50               # Calls per batch
+  max_workers: 5               # Parallel LLM calls
+  max_char_buffer: 3000        # Max chars per call (to save tokens)
+  deduplicate: true            # Skip already-processed calls
+  skip_empty_descriptions: true
+
+# Extraction schema version
+schema_version: "1.0.0"
