@@ -66,31 +66,47 @@ def main():
         print("\n  ✅ Dry-run completado. Extracción no ejecutada.")
         return 0
 
-    # 2. Run extraction (parallel with 20 workers)
+    # 2. Run extraction (parallel with 20 workers) + save to DB on the fly
     print(f"\n  🤖 Iniciando extracción con {config.llm_model} (20 workers paralelos)...")
     t0 = time.time()
     results = [None] * len(calls)
     errors = 0
+    pg_saved = 0
+    pg_errors = 0
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def process_one(i, call):
         try:
             result = extract_single_call(call, config)
-            return i, result, None
+            if result:
+                save_extraction_to_pg(
+                    call_id=result.call.call_id,
+                    partner_id=result.call.partner_id,
+                    extraction_data=result.entities.model_dump(),
+                    schema_version=result.schema_version,
+                    raw_text_preview=result.raw_text_preview,
+                    confidence=result.confidence,
+                )
+                return i, result, None, True
+            return i, None, "Sin resultado", False
         except Exception as e:
-            return i, None, str(e)
+            return i, None, str(e), False
 
     with ThreadPoolExecutor(max_workers=20) as pool:
         futures = [pool.submit(process_one, i, call) for i, call in enumerate(calls)]
         for f in as_completed(futures):
-            i, result, err = f.result()
+            i, result, err, pg_ok = f.result()
             if result:
                 results[i] = result
                 non_null = sum(1 for v in result.entities.model_dump().values() if v is not None)
                 print(f"  ✅ [{i+1}/{len(calls)}] Call #{calls[i]['id']} — {non_null}/102 campos")
+                if pg_ok:
+                    pg_saved += 1
             else:
                 errors += 1
+                if "ValidationError" in (err or ""):
+                    pg_errors += 1  # count schema errors
                 print(f"  ❌ [{i+1}/{len(calls)}] Call #{calls[i]['id']} — {err or 'Sin resultado'}")
 
     # Filter out None results
@@ -99,6 +115,7 @@ def main():
     elapsed = time.time() - t0
     print(f"\n  📊 Extracción: {len(results)} OK, {errors} errores en {elapsed:.1f}s")
     print(f"     Promedio: {elapsed/max(len(calls),1):.2f}s/llamada")
+    print(f"  🗄️  PG: {pg_saved} guardados, {pg_errors} errores de schema")
 
     if not results:
         print("  ❌ No hay resultados para guardar.")
@@ -113,36 +130,13 @@ def main():
     results_to_jsonl(results, str(jsonl_path))
     print(f"\n  💾 Backup local: {jsonl_path}")
 
-    # 4. Save to PostgreSQL (n8n_odoo)
-    print(f"\n  🗄️  Guardando en n8n_odoo.hermes_langextract_cuidum...")
-    t0 = time.time()
-    saved = 0
-    pg_errors = 0
-
-    for r in results:
-        try:
-            save_extraction_to_pg(
-                call_id=r.call.call_id,
-                partner_id=r.call.partner_id,
-                extraction_data=r.entities.model_dump(),
-                schema_version=r.schema_version,
-                raw_text_preview=r.raw_text_preview,
-                confidence=r.confidence,
-            )
-            saved += 1
-        except Exception as e:
-            logger.error("Error saving call %s to PG: %s", r.call.call_id, e)
-            pg_errors += 1
-
-    pg_elapsed = time.time() - t0
-    print(f"     {saved} registros guardados, {pg_errors} errores ({pg_elapsed:.1f}s)")
-
-    # 5. Summary
+    # 4. Summary
     print("\n" + "=" * 70)
     print("  📋 RESUMEN FASE 2")
     print("=" * 70)
     print(f"     Partners procesados: {len(results)}")
     print(f"     Tabla destino:       n8n_odoo.hermes_langextract_cuidum")
+    print(f"     Guardados en PG:     {pg_saved}")
     print(f"     Backup JSONL:        {jsonl_path}")
 
     # Show a few entity highlights

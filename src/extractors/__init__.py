@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import time
-from typing import Any
+from typing import Any, Optional
 
 from langextract.langextract.core import data as lx_data
 from langextract.langextract.providers import load_builtins_once, load_plugins_once
@@ -142,10 +142,16 @@ def _coerce_values(data: dict) -> dict:
                     data[field] = None
     
     # String fields that LLM sometimes returns as bool — coerce back
-    string_coerce_fields = ["rotacion_cuidadoras_explicita"]
-    for field in string_coerce_fields:
-        if field in data and isinstance(data[field], bool):
-            data[field] = "si" if data[field] else "no"
+    # Any field that the LLM returns as bool but should be string
+    for field in list(data.keys()):
+        if isinstance(data[field], bool):
+            # Check if Pydantic expects a string for this field
+            try:
+                field_info = CallEntities.model_fields.get(field)
+                if field_info and field_info.annotation == Optional[str]:
+                    data[field] = "si" if data[field] else "no"
+            except Exception:
+                pass
     
     return data
 
