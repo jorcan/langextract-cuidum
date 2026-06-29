@@ -66,25 +66,35 @@ def main():
         print("\n  ✅ Dry-run completado. Extracción no ejecutada.")
         return 0
 
-    # 2. Run extraction
-    print(f"\n  🤖 Iniciando extracción con {config.llm_model}...")
+    # 2. Run extraction (parallel with 20 workers)
+    print(f"\n  🤖 Iniciando extracción con {config.llm_model} (20 workers paralelos)...")
     t0 = time.time()
-    results = []
+    results = [None] * len(calls)
     errors = 0
 
-    for i, call in enumerate(calls, 1):
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def process_one(i, call):
         try:
             result = extract_single_call(call, config)
+            return i, result, None
+        except Exception as e:
+            return i, None, str(e)
+
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        futures = [pool.submit(process_one, i, call) for i, call in enumerate(calls)]
+        for f in as_completed(futures):
+            i, result, err = f.result()
             if result:
-                results.append(result)
+                results[i] = result
                 non_null = sum(1 for v in result.entities.model_dump().values() if v is not None)
-                print(f"  ✅ [{i}/{len(calls)}] Call #{call['id']} — {non_null}/102 campos")
+                print(f"  ✅ [{i+1}/{len(calls)}] Call #{calls[i]['id']} — {non_null}/102 campos")
             else:
                 errors += 1
-                print(f"  ⚠️  [{i}/{len(calls)}] Call #{call['id']} — Sin resultado")
-        except Exception as e:
-            errors += 1
-            print(f"  ❌ [{i}/{len(calls)}] Call #{call['id']} — Error: {e}")
+                print(f"  ❌ [{i+1}/{len(calls)}] Call #{calls[i]['id']} — {err or 'Sin resultado'}")
+
+    # Filter out None results
+    results = [r for r in results if r is not None]
 
     elapsed = time.time() - t0
     print(f"\n  📊 Extracción: {len(results)} OK, {errors} errores en {elapsed:.1f}s")
