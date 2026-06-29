@@ -101,6 +101,9 @@ def _coerce_values(data: dict) -> dict:
         "downgrade_risk", "upsell_opportunity", "anomalia_comportamiento",
         "mejora_salud_implica_baja", "amenaza_reclamacion_legal",
     ]
+
+    # String fields that LLM sometimes returns as bool — coerce back
+    string_coerce_fields = ["rotacion_cuidadoras_explicita"]
     
     for field in list_fields:
         if field in data and isinstance(data[field], str):
@@ -137,6 +140,12 @@ def _coerce_values(data: dict) -> dict:
                     data[field] = False
                 else:
                     data[field] = None
+    
+    # String fields that LLM sometimes returns as bool — coerce back
+    string_coerce_fields = ["rotacion_cuidadoras_explicita"]
+    for field in string_coerce_fields:
+        if field in data and isinstance(data[field], bool):
+            data[field] = "si" if data[field] else "no"
     
     return data
 

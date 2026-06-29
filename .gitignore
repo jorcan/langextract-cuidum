@@ -17,6 +17,9 @@ data/output/
 # Local config overrides
 config.local.yaml
 
+# Environment / secrets
+.env
+
 # IDE
 .vscode/
 .idea/
