@@ -1,0 +1,65 @@
+[
+  {
+    "id": "g01-hija-cuidadora",
+    "text": "Operador: Buenos días, ¿quién me llama? Cliente: Soy Laura. Hablo de mi madre. Operador: ¿Quién la cuida? Cliente: Mi hija Marta, vive conmigo. Su teléfono es 34612345678 y su DNI el 45892147V.",
+    "expected": {
+      "nombre_cuidador": "Marta",
+      "parentesco_cuidador": "hija",
+      "vive_con_paciente": true,
+      "telefono_cuidador": "34612345678",
+      "dni_cuidador": "45892147V"
+    }
+  },
+  {
+    "id": "g02-hijo-sin-mas-datos",
+    "text": "Cliente: Hola, mi padre necesita ayuda. Operador: ¿Quién se encargará de las gestiones? Cliente: Yo, su hijo. Pero no puedo darle más datos ahora.",
+    "expected": {
+      "parentesco_cuidador": "hijo"
+    }
+  },
+  {
+    "id": "g03-cuidadora-externa",
+    "text": "Cliente: Contratamos a una señora externa que viene de 9 a 13. Se llama Carmen y está dada de alta.",
+    "expected": {
+      "nombre_cuidador": "Carmen",
+      "parentesco_cuidador": "externa_contratada"
+    }
+  },
+  {
+    "id": "g04-dni-invalido-en-texto",
+    "text": "Cliente: La cuidadora me dio su DNI, apuntado: 12345678K. Vive en Sevilla.",
+    "expected": {
+      "localidad": "Sevilla",
+      "dni_cuidador": "12345678K"
+    },
+    "expected_status": {"dni_cuidador": "validator_fail"}
+  },
+  {
+    "id": "g05-telefono-deletreado",
+    "text": "Cliente: Mi teléfono es seis uno dos tres cuatro cinco. La cuidadora es mi sobrina.",
+    "expected": {
+      "parentesco_cuidador": "sobrina"
+    }
+  },
+  {
+    "id": "g06-sin-datos-cuidador",
+    "text": "Cliente: Solo llamo para pedir el precio del servicio. Nada más.",
+    "expected": {}
+  },
+  {
+    "id": "g07-nieta-convivencia-negativa",
+    "text": "Operador: ¿Quién cuida a su abuela? Cliente: Mi nieta, pero no vive con ella, viene los fines de semana.",
+    "expected": {
+      "parentesco_cuidador": "nieta",
+      "vive_con_paciente": false
+    }
+  },
+  {
+    "id": "g08-contacto-familiar-email",
+    "text": "Cliente: El correo de contacto es familia.perez@example.com y el móvil el 34698765432.",
+    "expected": {
+      "email_contacto": "familia.perez@example.com",
+      "telefono_contacto": "34698765432"
+    }
+  }
+]

@@ -59,9 +59,9 @@ class TestCandidatesQuery:
         assert "cp.duration >= %(min_dur)s" in sql
         assert "length(cp.description) > %(min_chars)s" in sql
         assert "ROW_NUMBER() OVER (PARTITION BY cp.partner_id" in sql
-        assert "WHERE rn = 1" in sql
-        assert "rp.x_relacion_familiar IS NULL OR rp.x_relacion_familiar = ''" in sql
-        assert "rp.mobile IS NULL OR rp.mobile = ''" in sql
+        assert "WHERE rn = 1" in sql or "c.rn = 1" in sql
+        assert "c.x_relacion_familiar IS NULL OR c.x_relacion_familiar = ''" in sql
+        assert "c.mobile IS NULL OR c.mobile = ''" in sql
         assert params["min_dur"] == 30 and params["min_chars"] == 100
 
     def test_sql_includes_target_columns(self):

@@ -55,13 +55,15 @@ def fetch_candidates_query(
     if not columns:
         raise ValueError("No hay columnas destino (targets) para el filtro de candidatos")
     missing_cond = " OR ".join(
-        f"rp.{c} IS NULL OR rp.{c} = ''" for c in columns
+        f"c.{c} IS NULL OR c.{c} = ''" for c in columns
     )
-    cols = ", ".join(f"rp.{c}" for c in columns)
+    alias_cols = ", ".join(
+        f"rp.{c} AS {c}" for c in columns
+    )
     sql = f"""
     WITH ranked AS (
         SELECT cp.id AS call_id, cp.partner_id, cp.description, cp.duration,
-               cp.clave, cp.subclave, cp.create_date, cp.name, {cols},
+               cp.clave, cp.subclave, cp.create_date, cp.name, {alias_cols},
                ROW_NUMBER() OVER (PARTITION BY cp.partner_id
                                   ORDER BY cp.create_date DESC) AS rn
         FROM crm_phonecall cp
@@ -71,9 +73,9 @@ def fetch_candidates_query(
           AND length(cp.description) > %(min_chars)s
           AND cp.duration >= %(min_dur)s
     )
-    SELECT * FROM ranked
-    WHERE rn = 1 AND ({missing_cond})
-    ORDER BY create_date DESC
+    SELECT * FROM ranked AS c
+    WHERE c.rn = 1 AND ({missing_cond})
+    ORDER BY c.create_date DESC
     LIMIT %(limit)s
     """
     return sql, {"min_chars": min_chars, "min_dur": min_duration, "limit": 1}
