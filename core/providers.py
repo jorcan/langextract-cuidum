@@ -14,6 +14,7 @@ from langextract.langextract.providers.openai import OpenAILanguageModel
 
 HERMES_API_URL = "http://127.0.0.1:8642/v1"
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
+DEEPSEEK_DEFAULT = "deepseek/deepseek-v4-flash-0731"
 GEMMA4_DEFAULT = "google/gemma-4-31b-it"
 _HERMES_FALLBACK_KEY = "ht-jorge-a78e45a5aba14dc6"
 
@@ -66,6 +67,8 @@ def make_provider(spec: Any, temperature: float = 0.05) -> OpenAILanguageModel:
 
     if spec == "hermes-api":
         return _make_openai("gpt-4o-mini", HERMES_API_URL, get_hermes_api_key(), temperature)
+    if spec == "openrouter-deepseek":
+        return _make_openai(DEEPSEEK_DEFAULT, OPENROUTER_URL, get_openrouter_key(), temperature)
     if spec == "openrouter-gemma4":
         return _make_openai(GEMMA4_DEFAULT, OPENROUTER_URL, get_openrouter_key(), temperature)
     raise ValueError(f"Provider desconocido: {spec!r}. Usa 'hermes-api', 'openrouter-gemma4' o dict.")

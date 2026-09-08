@@ -116,7 +116,10 @@ def extract_entities(
         logger.error("LLM output no es objeto JSON")
         return ExtractionDoc()
 
-    quotes = data.pop("__quote__", {}) or {}
+    quotes = data.pop("__quote__", {})
+    if not isinstance(quotes, dict):
+        logger.warning("__quote__ no es objeto JSON (%.60s); se ignora", str(quotes)[:60])
+        quotes = {}
 
     evidence_list: list[Evidence] = []
     for spec in fields:

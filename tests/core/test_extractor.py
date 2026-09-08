@@ -128,3 +128,14 @@ class TestExtractEntities:
         provider = FakeProvider(_llm_ok())
         extract_entities(TEXT, FIELDS, provider=provider)
         assert TEXT in provider.prompts[0]
+
+    def test_non_dict_quote_tolerated(self):
+        """__quote__ inválido (int/string) no debe romper la extracción."""
+        raw = json.dumps({"nombre_cuidador": "María", "dni_cuidador": "45892147V",
+                          "parentesco": "hija", "vive_con_paciente": "si",
+                          "__quote__": 42})  # quote inválida -> se ignora, grounding offline
+        doc = extract_entities(TEXT, FIELDS, provider=FakeProvider(raw))
+        ev = {e.field_name: e for e in doc.extractions}
+        # sin quotes: grounding offline con value.find -> sigue siendo ok
+        assert ev["nombre_cuidador"].status == "ok"
+        assert ev["dni_cuidador"].status == "ok"
