@@ -3,7 +3,7 @@
 Turns (fields, examples, existing_data, text) into a single instruction
 prompt that asks the LLM for a FLAT JSON with per-field __quote__ citations.
 
-Domain-agnostic: never mentions Odoo, calls, CRM — only "TEXTO" and "campos".
+Domain-agnostic: speaks only of "TEXTO" and "campos".
 """
 import json
 from typing import Any, Optional

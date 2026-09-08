@@ -1,0 +1,1 @@
+"""Cuidum adapter package — Odoo-specific glue around the generic core."""
