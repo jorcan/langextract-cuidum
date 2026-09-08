@@ -21,8 +21,10 @@ from pathlib import Path
 root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(root))
 
-OUT_DEFAULT = Path.home() / "static-docs" / "obs-langextract.html"
+OUT_DEFAULT = Path.home() / ".hermes" / "obs" / "obs-langextract.html"
 TZ = timezone(timedelta(hours=2))  # Madrid
+
+PRIVATE_OUT_DIR = Path.home() / ".hermes" / "obs"
 
 
 def get_dsn() -> str:
@@ -114,6 +116,7 @@ def main(argv=None) -> int:
     payload = collect()
     html = render(payload)
     out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     out.chmod(0o644)
     print(f"obs-langextract: {payload['total']} extracciones, "
