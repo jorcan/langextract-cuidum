@@ -52,12 +52,13 @@ class TestBuildPrompt:
         assert "externa" in p
 
     def test_truncates_example_text_to_300_chars(self):
+        import re as _re
         long_text = "X" * 450
         examples = [{"text": long_text, "extractions": {"parentesco": "externa"}}]
         p = build_prompt(TEXT, _fields(), examples=examples, existing_data={})
         # La línea de transcripción del ejemplo debe ser 300 X + "..."
-        line = next(l for l in p.splitlines() if set(l.strip()) == {"X"} and l.strip())
-        assert len(line) == 300 + 3  # "..."
+        line = next(l for l in p.splitlines() if _re.fullmatch(r"X{2,}\.\.\.", l.strip()))
+        assert len(line.strip()) == 300 + 3
 
     def test_instructs_flat_json_only(self):
         p = build_prompt(TEXT, _fields(), examples=[], existing_data={})
