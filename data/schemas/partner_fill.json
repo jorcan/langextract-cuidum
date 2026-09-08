@@ -1,0 +1,15 @@
+{
+  "id": "partner-fill",
+  "description": "Relleno de datos maestros del partner (bloque cuidador + contacto) desde transcripciones. Nombres provisionales: se congelan tras el inventario de res_partner.",
+  "version": "0.1.0",
+  "fields": [
+    {"name": "nombre_cuidador", "type": "string", "description": "Nombre completo del cuidador/a principal que cuida al paciente, tal como lo dice el interlocutor"},
+    {"name": "telefono_cuidador", "type": "string", "validator": "phone_es", "description": "Teléfono móvil o fijo del cuidador/a principal, con prefijo de país (normalizado a dígitos, ej. 34612345678)"},
+    {"name": "dni_cuidador", "type": "string", "validator": "dni", "description": "DNI/NIE del cuidador/a, 8 dígitos + letra de control (mayúsculas)"},
+    {"name": "parentesco_cuidador", "type": "literal", "allowed": ["hija", "hijo", "nieta", "nieto", "hermana", "hermano", "nuera", "yerno", "cuñada", "cuñado", "sobrina", "sobrino", "madre", "padre", "otro_familiar", "externa_contratada", "no_mencionado"], "description": "Parentesco o rol del cuidador/a con el paciente"},
+    {"name": "vive_con_paciente", "type": "bool", "description": "El cuidador convive con el paciente (si el interlocutor lo dice explícitamente)"},
+    {"name": "telefono_contacto", "type": "string", "validator": "phone_es", "description": "Teléfono de contacto del partner/familia, con prefijo de país"},
+    {"name": "email_contacto", "type": "string", "validator": "email", "description": "Correo electrónico de contacto mencionado en la conversación"},
+    {"name": "localidad", "type": "string", "description": "Población/ciudad donde reside el paciente o donde se presta el servicio"}
+  ]
+}
