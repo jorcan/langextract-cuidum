@@ -20,14 +20,14 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 logger = logging.getLogger("extract_cli")
 
 
-def resolve_schema(ref: str) -> list:
-    """Resuelve 'partner-fill' | 'cuidum-102' | ruta JSON -> lista FieldSpec."""
+def resolve_schema(ref: str) -> tuple[list, dict]:
+    """Resuelve 'partner-fill' | 'cuidum-102' | ruta JSON -> (fields, targets)."""
     from adapters.cuidum import partner_fill
     if ref == "partner-fill":
         return partner_fill.load_partner_fill_schema()
     if ref == "cuidum-102":
         from adapters.cuidum.schema_102 import FIELDS_102
-        return FIELDS_102
+        return FIELDS_102, {}
     p = Path(ref)
     if p.exists():
         return partner_fill.load_schema_file(p)
@@ -53,7 +53,7 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default=None, help="fichero JSONL de salida (mode extract)")
     args = ap.parse_args(argv)
 
-    fields = resolve_schema(args.schema)
+    fields, targets = resolve_schema(args.schema)
     examples = _load_examples(args.examples or _default_examples(args.schema))
 
     if args.mode == "schema":
@@ -61,13 +61,14 @@ def main(argv=None) -> int:
         for f in fields:
             extra = f" [{', '.join(f.allowed)}]" if f.allowed else ""
             val = f" (validador: {f.validator})" if f.validator else ""
-            print(f"  - {f.name} ({f.type}){extra}{val}")
+            col = f" -> {targets.get(f.name)}" if targets.get(f.name) else ""
+            print(f"  - {f.name} ({f.type}){extra}{val}{col}")
         return 0
 
     if args.mode == "dry-run":
-        return _dry_run(args, fields)
+        return _dry_run(args, fields, targets)
 
-    return _extract(args, fields, examples)
+    return _extract(args, fields, targets, examples)
 
 
 def _default_examples(schema: str) -> str | None:
@@ -77,13 +78,14 @@ def _default_examples(schema: str) -> str | None:
     return None
 
 
-def _load_candidates(limit: int):
+def _load_candidates(limit: int, fields=None, targets=None):
     from adapters.cuidum import partner_fill
     from adapters.cuidum.phonecalls import _get_cuidum_conn
-    fields = partner_fill.load_partner_fill_schema()
+    if fields is None or targets is None:
+        fields, targets = partner_fill.load_partner_fill_schema()
     conn = _get_cuidum_conn()
     try:
-        return partner_fill.fetch_candidates(conn, fields, limit=limit)
+        return partner_fill.fetch_candidates(conn, fields, targets, limit=limit)
     finally:
         conn.close()
 
@@ -95,20 +97,21 @@ def _existing_data(path: str | None) -> dict:
         return json.load(f)
 
 
-def _dry_run(args, fields) -> int:
+def _dry_run(args, fields, targets) -> int:
     logger.info("dry-run: contando candidatos (sin llamadas LLM)...")
-    candidates = _load_candidates(args.limit)
-    print(f"Candidatos (duration>=30s, fields vacíos): {len(candidates)}")
+    candidates = _load_candidates(args.limit, fields, targets)
+    cols = [t for t in targets.values() if t]
+    print(f"Candidatos (duration>=30s, {', '.join(cols)} vacíos): {len(candidates)}")
     for c in candidates[:5]:
         print(f"  call #{c['call_id']} partner {c['partner_id']} dur={c['duration']}s "
               f"desc={len(c['description'] or '')} chars")
     return 0
 
 
-def _extract(args, fields, examples) -> int:
+def _extract(args, fields, targets, examples) -> int:
     from core.extractor import extract_entities
     from core.providers import make_provider
-    candidates = _load_candidates(args.limit)
+    candidates = _load_candidates(args.limit, fields, targets)
     existing = _existing_data(args.existing)
 
     provider_a = make_provider(args.provider_a)

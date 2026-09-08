@@ -1,7 +1,7 @@
 {
   "id": "partner-fill",
-  "description": "Relleno de datos maestros del partner (bloque cuidador + contacto) desde transcripciones. Nombres provisionales: se congelan tras el inventario de res_partner.",
-  "version": "0.1.0",
+  "description": "Relleno de datos maestros del partner (bloque cuidador + contacto) desde transcripciones. Mapeo a columnas reales de res_partner según inventario 2026-09-08.",
+  "version": "0.2.0",
   "fields": [
     {"name": "nombre_cuidador", "type": "string", "description": "Nombre completo del cuidador/a principal que cuida al paciente, tal como lo dice el interlocutor"},
     {"name": "telefono_cuidador", "type": "string", "validator": "phone_es", "description": "Teléfono móvil o fijo del cuidador/a principal, con prefijo de país (normalizado a dígitos, ej. 34612345678)"},
@@ -11,5 +11,20 @@
     {"name": "telefono_contacto", "type": "string", "validator": "phone_es", "description": "Teléfono de contacto del partner/familia, con prefijo de país"},
     {"name": "email_contacto", "type": "string", "validator": "email", "description": "Correo electrónico de contacto mencionado en la conversación"},
     {"name": "localidad", "type": "string", "description": "Población/ciudad donde reside el paciente o donde se presta el servicio"}
+  ],
+  "targets": {
+    "nombre_cuidador": null,
+    "telefono_cuidador": null,
+    "dni_cuidador": null,
+    "parentesco_cuidador": "x_relacion_familiar",
+    "vive_con_paciente": null,
+    "telefono_contacto": "mobile",
+    "email_contacto": "email",
+    "localidad": null
+  },
+  "notes": [
+    "Inventario 2026-09-08: x_relacion_familiar 99% vacío, mobile 16.6%, email <5%.",
+    "nombre/telefono/dni del cuidador y vive_con_paciente NO tienen columna en el partner-familia: requieren crear campos x_* en Odoo (decisión de Jorge) antes de poder persistir.",
+    "Los campos sin columna destino se extraen igualmente como evidencia para revisión."
   ]
 }
