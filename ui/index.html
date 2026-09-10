@@ -42,6 +42,7 @@
   <div class="tab active" data-p="p1" onclick="tab('p1')">🧪 Probar extracción</div>
   <div class="tab" data-p="p2" onclick="tab('p2')">🧾 Cola de revisión</div>
   <div class="tab" data-p="p3" onclick="tab('p3')">📊 Estado</div>
+  <div class="tab" data-p="p4" onclick="tab('p4'); startActivity()">👁 Actividad en vivo</div>
 </div>
 
 <div class="panel active" id="p1">
@@ -81,13 +82,51 @@
   <div style="margin-top:10px" id="stats-container"></div>
 </div>
 
+<div class="panel" id="p4">
+  <p class="warn">Esto muestra en tiempo real lo que hace el servidor durante cada extracción (llamadas al LLM, duraciones, esquema, veredicto). Auto-refresca cada 2s.</p>
+  <button onclick="startActivity(true)">⟳ Refrescar ahora</button>
+  <div style="margin-top:10px" id="activity-container"><p>Esperando eventos…</p></div>
+</div>
+
 <script>
 const D = {};
+let _actTimer = null;
 function _h(){
   // El token viaja como cookie httpOnly same-origin (la setea el servidor al servir /).
   // Solo añadimos el header X-API-Key si el usuario teclea una clave explícita.
   const k = document.getElementById('apikey').value.trim();
   return k ? {'X-API-Key': k} : {};
+}
+
+// ── Actividad en vivo (polling cada 2s) ───────────────────────────────
+const ICONO = {
+  'extract.inicio': '▶️', 'llm.inicio': '🚀', 'llm.a.inicio': '🚀',
+  'llm.fin': '✅', 'llm.a.fin': '✅', 'extract.verdict': '⚖️', 'extract.fin': '🏁'
+};
+function pintarActividad(events){
+  const c = document.getElementById('activity-container');
+  if(!events.length){ c.innerHTML = '<p class="warn">Sin actividad aún. Pulsa Extraer en la pestaña Probar.</p>'; return; }
+  let h = '<table><thead><tr><th>hora</th><th>evento</th><th>detalle</th></tr></thead><tbody>';
+  events.forEach(e=>{
+    const ic = ICONO[e.tipo] || '•';
+    const det = e.verdict ? ('verdict: <b>' + e.verdict + '</b>') :
+                (e.duracion_s != null ? e.duracion_s + 's' :
+                (e.modelo ? e.modelo : (e.schema ? (e.schema + (e.recortado ? ' (recortado)' : '')) + ' · ' + e.chars + ' chars' : (e.chars ? e.chars + ' chars' : ''))));
+    h += `<tr><td>${e.ts.slice(11,19)}</td><td>${ic} ${e.tipo}</td><td>${det}</td></tr>`;
+  });
+  h += '</tbody></table>';
+  c.innerHTML = h;
+}
+async function startActivity(force){
+  if(!force && _actTimer) return; // ya corriendo
+  try{
+    const d = await _fetch('/api/v1/activity');
+    pintarActividad(d.events || []);
+  }catch(e){ /* silencio en poll */ }
+  clearInterval(_actTimer);
+  _actTimer = setInterval(async ()=>{
+    try{ const d = await _fetch('/api/v1/activity'); pintarActividad(d.events || []); }catch(e){}
+  }, 2000);
 }
 function tab(id){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.p===id));
@@ -112,7 +151,8 @@ function fmt(doc){
 async function extraer(){
   const out = document.getElementById('out1');
   out.classList.remove('quote','warn');
-  out.textContent = 'Extrayendo… (puede tardar ~10-30s)';
+  out.innerHTML = '⏳ Extrayendo… <span id="live-status" class="chip">preparando</span> (observa la pestaña 👁 Actividad en vivo)';
+  startActivity(true);  // empieza el polling para ver el progreso real
   const body = {
     texto: document.getElementById('texto').value,
     schema: document.getElementById('schema').value,
@@ -123,6 +163,7 @@ async function extraer(){
     const d = await _fetch('/api/v1/extract', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     let s = `VERDICT: ${d.verdict}\nMISSING: ${JSON.stringify(d.doc.missing_fields)}\n\n` + fmt(d.doc);
     out.innerHTML = s.replace(/\n/g,'<br>');
+    await startActivity(true);  // refresca la actividad al terminar
   }catch(e){ out.textContent = 'Error: '+e.message; }
 }
 async function cargarReview(){

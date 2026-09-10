@@ -22,6 +22,10 @@ import hmac
 import json
 import logging
 import os
+import time
+import threading
+from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -46,6 +50,25 @@ MAX_BODY = int(os.environ.get("MAX_BODY_BYTES", 10 * 1024 * 1024))  # 10 MB
 UI_DIR = ROOT / "ui"
 
 app = FastAPI(title="Langextract Service", version="1.0.0")
+
+
+# ── Actividad en vivo (observabilidad del extract en curso) ─────────────
+# Cola thread-safe de eventos: cada /extract emite pasos con timestamp y
+# duración. La UI hace polling a /api/v1/activity y pinta el progreso real.
+_ACTIVITY = deque(maxlen=300)
+_ACTIVITY_LOCK = threading.Lock()
+
+
+def _log_event(evt: dict):
+    """Añade un evento de actividad con timestamp UTC ISO."""
+    evt = dict(evt)
+    evt.setdefault("ts", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    with _ACTIVITY_LOCK:
+        _ACTIVITY.appendleft(evt)
+
+
+def _timing(t0: float) -> float:
+    return round(time.monotonic() - t0, 1)
 
 
 # ── Seguridad ────────────────────────────────────────────────────────────
@@ -133,27 +156,40 @@ async def get_schemas(request: Request, x_api_key: Optional[str] = Header(None))
 @app.post("/api/v1/extract", dependencies=[])
 async def extract(request: Request, req: ExtractRequest, x_api_key: Optional[str] = Header(None)):
     _require_auth(x_api_key, request=request)
+    t0 = time.monotonic()
     texto = req.texto
+    recortado = False
     if req.max_chars and len(texto) > req.max_chars:
         texto = texto[-req.max_chars:]  # tramo FINAL: en entrevistas van los datos personales al final
+        recortado = True
     fields = _load_fields(req.schema)
+    _log_event({"tipo": "extract.inicio", "schema": req.schema,
+                "chars": len(texto), "recortado": recortado,
+                "modelos": req.provider_a + ("," + req.provider_b if req.use_dual and req.provider_b else "")})
     if req.use_dual and req.provider_b:
         from core.consensus import run_dual
         from core.providers import make_provider
         prov_a = make_provider(req.provider_a)
         prov_b = make_provider(req.provider_b)
         critical = [f.name for f in fields if f.validator or f.type == "bool"]
+        _log_event({"tipo": "llm.a.inicio", "modelo": req.provider_a})
         verdict, doc_a, _ = run_dual(
             texto, fields, provider_a=prov_a, provider_b=prov_b,
             critical_fields=critical, examples=req.examples)
+        _log_event({"tipo": "llm.a.fin", "duracion_s": _timing(t0)})
         payload = doc_a.format()
+        _log_event({"tipo": "extract.verdict", "verdict": verdict})
     else:
         from core.extractor import extract_entities
         from core.providers import make_provider
         prov = make_provider(req.provider_a)
+        _log_event({"tipo": "llm.inicio", "modelo": req.provider_a})
         doc = extract_entities(texto, fields, provider=prov, examples=req.examples)
+        _log_event({"tipo": "llm.fin", "duracion_s": _timing(t0)})
         payload = doc.format()
         verdict = "single_model"
+        _log_event({"tipo": "extract.verdict", "verdict": verdict})
+    _log_event({"tipo": "extract.fin", "duracion_total_s": _timing(t0)})
     return {"verdict": verdict, "doc": payload}
 
 
@@ -237,6 +273,14 @@ async def decide(request: Request, call_id: int, req: ReviewRequest, x_api_key: 
     except Exception as e:
         raise HTTPException(502, f"Error guardando decisión: {e}")
     return {"ok": True, "call_id": call_id, "review_status": "approved" if all_ok else "rejected"}
+
+
+@app.get("/api/v1/activity", dependencies=[])
+async def get_activity(request: Request, x_api_key: Optional[str] = Header(None)):
+    _require_auth(x_api_key, request=request)
+    with _ACTIVITY_LOCK:
+        events = list(_ACTIVITY)
+    return {"events": events}
 
 
 # ── UI ───────────────────────────────────────────────────────────────────
