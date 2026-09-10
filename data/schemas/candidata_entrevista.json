@@ -1,27 +1,19 @@
 {
   "id": "candidata-entrevista",
-  "description": "Perfil de candidata a cuidadora extraído de una entrevista de trabajo (recruiting). Campos que se mencionan en la conversación: datos personales, experiencia laboral, patologías tratadas, tareas realizadas, disponibilidad y cualidades.",
-  "version": "0.1.0",
+  "description": "Perfil de candidata a cuidadora extraído de una entrevista de trabajo (recruiting). Versión reducida a 10 campos para latencia razonable.",
+  "version": "0.2.0",
   "fields": [
     {"name": "nombre_completo", "type": "string", "description": "Nombre completo de la candidata entrevistada, tal como se dice (p.ej. 'Maricela', 'Marisela Luna')"},
     {"name": "pais_origen", "type": "string", "description": "País de origen de la candidata (p.ej. Honduras, Colombia, Bolivia, España)"},
     {"name": "ciudad_residencia", "type": "string", "description": "Ciudad donde vive actualmente (p.ej. Madrid, Barcelona)"},
-    {"name": "direccion", "type": "string", "description": "Calle/dirección de residencia si se menciona (p.ej. 'calle Escorial')"},
-    {"name": "fecha_nacimiento", "type": "string", "validator": "date", "validator_config": {"fmt": "%Y-%m-%d"}, "description": "Fecha de nacimiento en formato ISO (YYYY-MM-DD). Si dice '3 de octubre del 86' -> 1986-10-03"},
-    {"name": "email_contacto", "type": "string", "validator": "email", "description": "Correo electrónico si se deletrea ('arroba' -> @, 'punto' -> .); normalizar"},
-    {"name": "telefono_contacto", "type": "string", "validator": "phone_es", "description": "Teléfono de contacto si se menciona, con prefijo de país"},
+    {"name": "fecha_nacimiento", "type": "string", "validator": "date", "validator_config": {"fmt": "%Y-%m-%d"}, "description": "Fecha de nacimiento ISO (YYYY-MM-DD). Si dice '3 de octubre del 86' -> 1986-10-03"},
+    {"name": "email_contacto", "type": "string", "validator": "email", "description": "Correo si se deletrea ('arroba' -> @, 'punto' -> .); normalizar"},
     {"name": "nivel_formativo", "type": "literal", "allowed": ["primaria", "secundaria", "bachillerato", "formacion_profesional", "universitario", "no_mencionado"], "description": "Nivel educativo declarado (p.ej. 'Primaria', 'Bachillerato', 'FP')"},
-    {"name": "experiencia_anios", "type": "float", "description": "Años totales de experiencia como cuidadora (p.ej. 'llevo 4 años trabajando' -> 4.0)"},
-    {"name": "modalidad_preferida", "type": "literal", "allowed": ["interna", "externa", "ambas", "no_mencionado"], "description": "Preferencia de modalidad: interna (convivir), externa (por horas) o ambas"},
-    {"name": "disponibilidad_horario", "type": "string", "description": "Horario de disponibilidad (p.ej. 'mañana y tarde', 'solo mañana', '24 horas')"},
-    {"name": "disponibilidad_fines_semana", "type": "bool", "description": "¿Tiene disponibilidad los fines de semana? (true si lo dice explícitamente)"},
-    {"name": "medio_transporte", "type": "string", "description": "Medio de transporte personal o pública (p.ej. 'autobús', 'coche', 'ninguno')"},
-    {"name": "idiomas", "type": "list", "description": "Idiomas que habla además del castellano (vacío si ninguno)"},
-    {"name": "patologias_experiencia", "type": "list", "description": "Enfermedades/condiciones de pacientes que ha cuidado (p.ej. ['Parkinson', 'diabetes', 'tensión alta', 'ictus', 'cáncer', 'Alzheimer', 'discapacidad visual'])"},
-    {"name": "tareas_realizadas", "type": "list", "description": "Tareas que ha realizado como cuidadora (p.ej. ['cambio de pañales', 'aseo', 'higiene', 'cremas', 'masajes', 'control de medicación', 'acompañar a citas médicas', 'preparar comidas', 'compras', 'limpieza', 'inyecciones insulina'])"},
-    {"name": "experiencia_internas", "type": "bool", "description": "¿Ha trabajado como interna (conviviendo) en alguna ocasión? (true si lo dice)"},
-    {"name": "prestacion_desempleo", "type": "bool", "description": "¿Cobra actualmente alguna prestación por desempleo? (true si 'sí')"},
-    {"name": "cualidades", "type": "list", "description": "Cualidades que la candidata dice que la definen (p.ej. ['dedicada', 'cariñosa', 'entregada', 'paciente'])"},
-    {"name": "como_la_conocio", "type": "literal", "allowed": ["internet", "infojobs", "amiga", "referencia", "otro", "no_mencionado"], "description": "Cómo conoció la oferta/empresa (p.ej. 'Por una amiga' -> amiga)"}
+    {"name": "experiencia_anios", "type": "float", "description": "Años totales de experiencia como cuidadora (p.ej. 'llevo 4 años' -> 4.0)"},
+    {"name": "modalidad_preferida", "type": "literal", "allowed": ["interna", "externa", "ambas", "no_mencionado"], "description": "Preferencia: interna (convivir), externa (por horas) o ambas"},
+    {"name": "patologias_experiencia", "type": "list", "description": "Enfermedades de pacientes que ha cuidado (p.ej. ['Parkinson','diabetes','tensión alta','ictus','cáncer','discapacidad visual'])"},
+    {"name": "prestacion_desempleo", "type": "bool", "description": "¿Cobra prestación por desempleo? (true si 'sí')"},
+    {"name": "cualidades", "type": "list", "description": "Cualidades que la definen (p.ej. ['dedicada','cariñosa','entregada'])"},
+    {"name": "como_la_conocio", "type": "literal", "allowed": ["internet", "infojobs", "amiga", "referencia", "otro", "no_mencionado"], "description": "Cómo conoció la oferta (p.ej. 'Por una amiga' -> amiga)"}
   ]
 }

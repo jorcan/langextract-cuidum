@@ -20,6 +20,7 @@ services:
       N8N_DB_URL: ${N8N_DB_URL:?N8N_DB_URL no definido en el .env}
       CUIDUM_DB_URL: ${CUIDUM_DB_URL:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY no definido en el .env}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-180}
       PORT: "8654"
     ports:
       - "127.0.0.1:8654:8654"

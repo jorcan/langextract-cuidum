@@ -92,6 +92,10 @@ def _load_fields(schema_ref: str):
     if schema_ref == "partner-fill":
         fields, _ = partner_fill.load_partner_fill_schema()
         return fields
+    if schema_ref == "candidata-entrevista":
+        fields, _ = partner_fill.load_schema_file(
+            ROOT / "data/schemas/candidata_entrevista.json")
+        return fields
     if schema_ref == "cuidum-102":
         from adapters.cuidum.schema_102 import FIELDS_102
         return FIELDS_102
@@ -112,12 +116,16 @@ def health():
 @app.get("/api/v1/schemas", dependencies=[] )
 async def get_schemas(request: Request, x_api_key: Optional[str] = Header(None)):
     _require_auth(x_api_key, request=request)
-    fields = _load_fields("partner-fill")
-    return {"schemas": [{
-        "id": "partner-fill",
-        "campos": [{"name": f.name, "type": f.type,
-                    "validator": f.validator, "allowed": f.allowed}
-                   for f in fields]}]}
+    out = []
+    for sid in ("partner-fill", "candidata-entrevista", "cuidum-102"):
+        try:
+            fields = _load_fields(sid)
+        except Exception:
+            continue
+        out.append({"id": sid, "campos": [
+            {"name": f.name, "type": f.type, "validator": f.validator,
+             "allowed": f.allowed} for f in fields]})
+    return {"schemas": out}
 
 
 @app.post("/api/v1/extract", dependencies=[])
@@ -244,4 +252,7 @@ async def ui_index():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8650))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    workers = int(os.environ.get("WEB_WORKERS", "1"))
+    # Con más de 1 worker, /health responde aunque un /extract esté ocupando
+    # el otro worker (la app es stateless: token y DB por env).
+    uvicorn.run(app, host="0.0.0.0", port=port, workers=workers)
