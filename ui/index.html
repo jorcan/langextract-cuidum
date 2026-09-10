@@ -57,6 +57,9 @@
     <label style="display:inline-flex;align-items:center">
       <input type="checkbox" id="dual" checked> <span style="margin-left:6px">Consenso dual (DeepSeek + Gemma4)</span>
     </label>
+    <label style="display:inline-flex;align-items:center;margin-left:12px">
+      <input type="checkbox" id="recortar" checked> <span style="margin-left:6px">Recortar texto a 6000 chars (para transcripciones largas)</span>
+    </label>
   </div>
   <div style="margin-top:14px">
     <button onclick="extraer()">Extraer entidades</button>
@@ -113,7 +116,8 @@ async function extraer(){
   const body = {
     texto: document.getElementById('texto').value,
     schema: document.getElementById('schema').value,
-    use_dual: document.getElementById('dual').checked
+    use_dual: document.getElementById('dual').checked,
+    max_chars: document.getElementById('recortar').checked ? 6000 : null
   };
   try{
     const d = await _fetch('/api/v1/extract', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});

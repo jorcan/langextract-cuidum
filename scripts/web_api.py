@@ -68,12 +68,14 @@ def _require_auth(x_api_key: Optional[str] = Header(None), request: Request = No
 
 # ── Schemas de petición ─────────────────────────────────────────────────
 class ExtractRequest(BaseModel):
-    texto: str = Field(..., min_length=1, max_length=100_000)
+    texto: str = Field(..., min_length=1, max_length=200_000)
     schema: str = "partner-fill"
     use_dual: bool = True
     provider_a: str = "openrouter-deepseek"
     provider_b: Optional[str] = "openrouter-gemma4"
     examples: Optional[list[dict]] = None
+    max_chars: Optional[int] = Field(
+        None, description="Recorta el texto a los últimos N caracteres (para transcripciones largas). Default: sin recorte.")
 
 
 class ReviewDecision(BaseModel):
@@ -131,6 +133,9 @@ async def get_schemas(request: Request, x_api_key: Optional[str] = Header(None))
 @app.post("/api/v1/extract", dependencies=[])
 async def extract(request: Request, req: ExtractRequest, x_api_key: Optional[str] = Header(None)):
     _require_auth(x_api_key, request=request)
+    texto = req.texto
+    if req.max_chars and len(texto) > req.max_chars:
+        texto = texto[-req.max_chars:]  # tramo FINAL: en entrevistas van los datos personales al final
     fields = _load_fields(req.schema)
     if req.use_dual and req.provider_b:
         from core.consensus import run_dual
@@ -139,14 +144,14 @@ async def extract(request: Request, req: ExtractRequest, x_api_key: Optional[str
         prov_b = make_provider(req.provider_b)
         critical = [f.name for f in fields if f.validator or f.type == "bool"]
         verdict, doc_a, _ = run_dual(
-            req.texto, fields, provider_a=prov_a, provider_b=prov_b,
+            texto, fields, provider_a=prov_a, provider_b=prov_b,
             critical_fields=critical, examples=req.examples)
         payload = doc_a.format()
     else:
         from core.extractor import extract_entities
         from core.providers import make_provider
         prov = make_provider(req.provider_a)
-        doc = extract_entities(req.texto, fields, provider=prov, examples=req.examples)
+        doc = extract_entities(texto, fields, provider=prov, examples=req.examples)
         payload = doc.format()
         verdict = "single_model"
     return {"verdict": verdict, "doc": payload}
