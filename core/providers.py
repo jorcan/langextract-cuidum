@@ -125,4 +125,8 @@ def make_provider(spec: Any, temperature: float = 0.05) -> OpenAILanguageModel:
         return _make_openai(DEEPSEEK_DEFAULT, OPENROUTER_URL, get_openrouter_key(), temperature)
     if spec == "openrouter-gemma4":
         return _make_openai(GEMMA4_DEFAULT, OPENROUTER_URL, get_openrouter_key(), temperature)
+    if isinstance(spec, str) and spec.startswith("openrouter-model:"):
+        # Modelo arbitrario de OpenRouter por id completo (p.ej. "openrouter-model:deepseek/deepseek-v4.1-flash")
+        model_id = spec[len("openrouter-model:"):]
+        return _make_openai(model_id, OPENROUTER_URL, get_openrouter_key(), temperature)
     raise ValueError(f"Provider desconocido: {spec!r}. Usa 'hermes-api', 'openrouter-gemma4' o dict.")

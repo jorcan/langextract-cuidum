@@ -283,6 +283,47 @@ async def get_activity(request: Request, x_api_key: Optional[str] = Header(None)
     return {"events": events}
 
 
+@app.get("/api/v1/models", dependencies=[])
+async def get_models(request: Request, x_api_key: Optional[str] = Header(None)):
+    _require_auth(x_api_key, request=request)
+    """Lista modelos de OpenRouter con su coste (USD por 1M tokens), ordenados de menor a mayor coste."""
+    try:
+        import urllib.request
+        from core.providers import get_openrouter_key, OPENROUTER_URL
+        key = get_openrouter_key()
+        # cachear 10 min para no martillear la API de OpenRouter
+        import time as _t
+        now = _t.time()
+        models = getattr(get_models, "_cache", None)
+        if not (models and now - getattr(get_models, "_ts", 0) < 600):
+            req = urllib.request.Request(f"{OPENROUTER_URL}/models",
+                                        headers={"Authorization": f"Bearer {key}"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                data = json.loads(r.read().decode()).get("data", [])
+            out = []
+            for m in data:
+                pr = m.get("pricing", {})
+                prompt = float(pr.get("prompt") or 0)      # USD por token
+                comp = float(pr.get("completion") or 0)    # USD por token
+                coste_1m = round((prompt + comp) * 1_000_000, 6)  # USD por 1M tokens
+                if coste_1m < 0:
+                    continue  # modelos sin precio publicado (openrouter/auto, etc.)
+                out.append({
+                    "id": m["id"],
+                    "name": m.get("name", m["id"]),
+                    "coste_1m_usd": coste_1m,
+                })
+            out.sort(key=lambda x: (x["coste_1m_usd"], x["id"]))  # menor a mayor
+            models = out
+            get_models._cache = models
+            get_models._ts = now
+        return {"models": models, "total": len(models),
+                "unidad": "USD por 1M tokens (prompt+completion)"}
+    except Exception as e:
+        logger.warning("models fetch error: %s", e)
+        raise HTTPException(502, f"No se pudieron obtener modelos de OpenRouter: {e}")
+
+
 # ── UI ───────────────────────────────────────────────────────────────────
 @app.get("/")
 async def ui_index():

@@ -54,13 +54,16 @@
     <option value="candidata-entrevista">candidata-entrevista (perfil de candidata)</option>
     <option value="cuidum-102">cuidum-102 (102 entidades)</option>
   </select>
-  <div style="margin-top:10px">
-    <label style="display:inline-flex;align-items:center">
-      <input type="checkbox" id="dual" checked> <span style="margin-left:6px">Consenso dual (DeepSeek + Gemma4)</span>
+  <label style="display:inline-flex;align-items:center">
+      <input type="checkbox" id="dual" checked> <span style="margin-left:6px">Consenso dual (modelo A + modelo B)</span>
     </label>
     <label style="display:inline-flex;align-items:center;margin-left:12px">
       <input type="checkbox" id="recortar" checked> <span style="margin-left:6px">Recortar texto a 6000 chars (para transcripciones largas)</span>
     </label>
+  </div>
+  <div style="margin-top:8px">
+    <label style="color:var(--muted);font-size:.8rem">Modelo OpenRouter (ordenado por coste, menor → mayor)</label>
+    <select id="modelo" style="width:100%"><option value="">Cargando modelos…</option></select>
   </div>
   <div style="margin-top:14px">
     <button onclick="extraer()">Extraer entidades</button>
@@ -148,16 +151,42 @@ function fmt(doc){
   }
   return out.join('\n');
 }
+async function poblarModelos(){
+  try{
+    const d = await _fetch('/api/v1/models');
+    const sel = document.getElementById('modelo');
+    // d.models ya viene ordenado por coste asc desde el servidor
+    sel.innerHTML = d.models.map(m => {
+      const c = m.coste_1m_usd < 0.01 ? (m.coste_1m_usd*1000).toFixed(2)+'¢/1M' : '$'+m.coste_1m_usd.toFixed(2)+'/1M';
+      return `<option value="${esc(m.id)}">${esc(m.name)} — ${c}</option>`;
+    }).join('');
+    // Preseleccionar el modelo por defecto (deepseek) si existe
+    const def = d.models.find(m => m.id.startsWith('deepseek/'));
+    if(def) sel.value = def.id;
+    sel.dataset.cargado = '1';
+    if(sel.dataset.pendiente){ extraer(); }
+  }catch(e){
+    document.getElementById('modelo').innerHTML = '<option value="openrouter-deepseek">DeepSeek v4 Flash (fallback)</option>';
+  }
+}
+function esc(s){
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 async function extraer(){
   const out = document.getElementById('out1');
   out.classList.remove('quote','warn');
   out.innerHTML = '⏳ Extrayendo… <span id="live-status" class="chip">preparando</span> (observa la pestaña 👁 Actividad en vivo)';
   startActivity(true);  // empieza el polling para ver el progreso real
+  const voz = document.getElementById('modelo');
+  if(voz.dataset.cargado !== '1' && !voz.value){ voz.dataset.pendiente='1'; out.innerHTML='⏳ Cargando modelos… (reintenta en un momento)'; return; }
   const body = {
     texto: document.getElementById('texto').value,
     schema: document.getElementById('schema').value,
     use_dual: document.getElementById('dual').checked,
-    max_chars: document.getElementById('recortar').checked ? 6000 : null
+    max_chars: document.getElementById('recortar').checked ? 6000 : null,
+    provider_a: voz.value ? 'openrouter-model:' + voz.value : 'openrouter-deepseek'
   };
   try{
     const d = await _fetch('/api/v1/extract', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
@@ -195,6 +224,9 @@ async function cargarStats(){
       <div class="kpi">HITL pendientes <b>${d.hitl_total}</b></div>`;
   }catch(e){ document.getElementById('stats-container').innerHTML = '<p class="warn">Error: '+e.message+'</p>'; }
 }
+// Al cargar la página: poblar el selector de modelos (coste asc) y arrancar la actividad
+poblarModelos();
+startActivity(true);
 </script>
 </body>
 </html>
