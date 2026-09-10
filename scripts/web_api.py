@@ -91,7 +91,7 @@ def _require_auth(x_api_key: Optional[str] = Header(None), request: Request = No
 
 # ── Schemas de petición ─────────────────────────────────────────────────
 class ExtractRequest(BaseModel):
-    texto: str = Field(..., min_length=1, max_length=200_000)
+    texto: str = Field("", min_length=0, max_length=200_000)
     schema: str = "partner-fill"
     use_dual: bool = True
     provider_a: str = "openrouter-deepseek"
@@ -99,6 +99,10 @@ class ExtractRequest(BaseModel):
     examples: Optional[list[dict]] = None
     max_chars: Optional[int] = Field(
         None, description="Recorta el texto a los últimos N caracteres (para transcripciones largas). Default: sin recorte.")
+    call_id: Optional[int] = Field(
+        None, description="ID de crm_phonecall en Odoo Cuidum. Si se pasa, la transcripción se lee del campo description y se añade el contexto del partner (vocabulario selection real).")
+    use_partner_context: bool = Field(
+        True, description="Cargar campos selection reales del partner (res.partner) para restringir allowed y no re-extraer lo ya poblado.")
 
 
 class ReviewDecision(BaseModel):
@@ -109,6 +113,12 @@ class ReviewDecision(BaseModel):
 
 class ReviewRequest(BaseModel):
     decisiones: list[ReviewDecision]
+
+
+class ExampleIn(BaseModel):
+    schema: str = "partner-fill"
+    text: str = Field(..., min_length=1)
+    extractions: dict = Field(..., description="Campos corregidos (nombre -> valor) que el LLM debe aprender")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -157,15 +167,76 @@ async def get_schemas(request: Request, x_api_key: Optional[str] = Header(None))
 async def extract(request: Request, req: ExtractRequest, x_api_key: Optional[str] = Header(None)):
     _require_auth(x_api_key, request=request)
     t0 = time.monotonic()
-    texto = req.texto
+    texto = (req.texto or "").strip()
     recortado = False
+    call_info = None
+    partner_ctx = None
+    existing_data = None
+
+    # ── Fuente por call_id: transcripción en crm_phonecall.description ──
+    if req.call_id:
+        from adapters.cuidum.phonecalls import fetch_call_by_id, fetch_partner_selection_context
+        call = fetch_call_by_id(req.call_id)
+        if call is None:
+            raise HTTPException(404, f"crm_phonecall {req.call_id} no existe")
+        desc = call.get("description") or ""
+        if req.use_partner_context and call.get("partner_id"):
+            partner_ctx = fetch_partner_selection_context(call["partner_id"])
+        call_info = {
+            "call_id": call["id"],
+            "name": call.get("name"),
+            "partner_id": call.get("partner_id"),
+            "clave": f"{call.get('nombre_clave')} ({call.get('codigo_clave')})" if call.get("nombre_clave") else call.get("clave"),
+            "subclave": f"{call.get('nombre_subclave')} ({call.get('codigo_subclave')})" if call.get("nombre_subclave") else call.get("subclave"),
+            "description_chars": len(desc),
+        }
+        if not texto:
+            texto = desc
+        elif desc:
+            # texto explícito + transcripción: adjuntar la llamada como contexto
+            texto = f"{texto}\n\n=== TRANSCRIPCIÓN DE LA LLAMADA #{call['id']} ===\n{desc}"
+    if not texto:
+        raise HTTPException(422, "texto vacío — pasa texto o call_id de crm_phonecall")
+
     if req.max_chars and len(texto) > req.max_chars:
-        texto = texto[-req.max_chars:]  # tramo FINAL: en entrevistas van los datos personales al final
+        texto = texto[-req.max_chars:]  # tramo FINAL (datos personales al final)
         recortado = True
+
     fields = _load_fields(req.schema)
+
+    # ── Restricción al vocabulario real de Odoo (campos selection) ────
+    if partner_ctx:
+        from adapters.cuidum.odoo_enrich import enrich_fields_with_odoo, existing_values_from_partner
+        fields = enrich_fields_with_odoo(fields, partner_ctx)
+        existing_data = existing_values_from_partner(fields, partner_ctx)
+
+    # ── Ejemplos few-shot: los pasados explícitamente o los guardados ──
+    if not req.examples:
+        examples_path = ROOT / "data" / "examples" / f"{req.schema}.json"
+        if examples_path.exists():
+            try:
+                req.examples = json.loads(examples_path.read_text(encoding="utf-8")) or None
+            except Exception:
+                req.examples = None
+
     _log_event({"tipo": "extract.inicio", "schema": req.schema,
                 "chars": len(texto), "recortado": recortado,
+                "call_id": req.call_id, "partner_ctx": bool(partner_ctx),
                 "modelos": req.provider_a + ("," + req.provider_b if req.use_dual and req.provider_b else "")})
+
+    # ── Estimación de coste (antes de llamar al LLM) ───────────────────
+    from core.providers import get_openrouter_models, estimate_extract_cost
+    models = get_openrouter_models()
+    model_a_id = req.provider_a[len("openrouter-model:"):] if req.provider_a.startswith("openrouter-model:") else req.provider_a
+    n_calls = 2 if (req.use_dual and req.provider_b) else 1
+    cost_est = estimate_extract_cost(model_a_id, len(texto), 80 + 24 * len(fields),
+                                     n_calls=n_calls, models=models)
+    if cost_est.get("estimado"):
+        _log_event({"tipo": "coste.estimado", "modelo": model_a_id,
+                    "coste_usd": cost_est["coste_estimado_usd"],
+                    "tokens_prompt": cost_est["prompt_tokens"],
+                    "tokens_completion": cost_est["completion_tokens"]})
+
     if req.use_dual and req.provider_b:
         from core.consensus import run_dual
         from core.providers import make_provider
@@ -175,7 +246,8 @@ async def extract(request: Request, req: ExtractRequest, x_api_key: Optional[str
         _log_event({"tipo": "llm.a.inicio", "modelo": req.provider_a})
         verdict, doc_a, _ = run_dual(
             texto, fields, provider_a=prov_a, provider_b=prov_b,
-            critical_fields=critical, examples=req.examples)
+            critical_fields=critical, examples=req.examples,
+            existing_data=existing_data)
         _log_event({"tipo": "llm.a.fin", "duracion_s": _timing(t0)})
         payload = doc_a.format()
         _log_event({"tipo": "extract.verdict", "verdict": verdict})
@@ -184,13 +256,28 @@ async def extract(request: Request, req: ExtractRequest, x_api_key: Optional[str
         from core.providers import make_provider
         prov = make_provider(req.provider_a)
         _log_event({"tipo": "llm.inicio", "modelo": req.provider_a})
-        doc = extract_entities(texto, fields, provider=prov, examples=req.examples)
+        doc = extract_entities(texto, fields, provider=prov, examples=req.examples,
+                               existing_data=existing_data)
         _log_event({"tipo": "llm.fin", "duracion_s": _timing(t0)})
         payload = doc.format()
         verdict = "single_model"
         _log_event({"tipo": "extract.verdict", "verdict": verdict})
     _log_event({"tipo": "extract.fin", "duracion_total_s": _timing(t0)})
-    return {"verdict": verdict, "doc": payload}
+
+    resp = {"verdict": verdict, "doc": payload, "coste_estimado": cost_est}
+    if call_info:
+        resp["call"] = call_info
+    if partner_ctx:
+        resp["partner"] = {
+            "partner_id": (partner_ctx.get("partner") or {}).get("id"),
+            "name": (partner_ctx.get("partner") or {}).get("name"),
+            "selections_poblados": {
+                k: v for k, v in (partner_ctx.get("selections") or {}).items()
+                if v.get("valor_actual") is not None
+            },
+            "vocabulario_campos": sorted(partner_ctx.get("selections") or {}),
+        }
+    return resp
 
 
 @app.get("/api/v1/stats", dependencies=[])
@@ -275,6 +362,50 @@ async def decide(request: Request, call_id: int, req: ReviewRequest, x_api_key: 
     return {"ok": True, "call_id": call_id, "review_status": "approved" if all_ok else "rejected"}
 
 
+@app.post("/api/v1/examples", dependencies=[])
+async def add_example(request: Request, req: ExampleIn, x_api_key: Optional[str] = Header(None)):
+    """Guardar una extracción corregida como ejemplo few-shot (loop de mejora de acierto).
+
+    Escribe en data/examples/<schema>.json; ese fichero se envía como
+    `examples` en /extract para que el LLM aprenda de la corrección humana.
+    """
+    _require_auth(x_api_key, request=request)
+    EXAMPLES_DIR = ROOT / "data" / "examples"
+    EXAMPLES_DIR.mkdir(parents=True, exist_ok=True)
+    path = EXAMPLES_DIR / f"{req.schema}.json"
+    existing = []
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(existing, list):
+                existing = []
+        except Exception:
+            existing = []
+    # Dedup por texto (normalizado): si ya existe, se sustituye
+    norm_text = " ".join(req.text.strip().lower().split())
+    existing = [e for e in existing
+                if " ".join((e.get("text") or "").strip().lower().split()) != norm_text]
+    existing.insert(0, {"text": req.text, "extractions": req.extractions})
+    existing = existing[:30]  # top-N más recientes
+    path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+    _log_event({"tipo": "examples.guardado", "schema": req.schema,
+                "total": len(existing), "campos": sorted(req.extractions)})
+    return {"ok": True, "schema": req.schema, "total": len(existing), "path": str(path)}
+
+
+@app.get("/api/v1/examples", dependencies=[])
+async def list_examples(request: Request, schema: str = "partner-fill", x_api_key: Optional[str] = Header(None)):
+    _require_auth(x_api_key, request=request)
+    path = ROOT / "data" / "examples" / f"{schema}.json"
+    if not path.exists():
+        return {"schema": schema, "examples": [], "total": 0}
+    try:
+        examples = json.loads(path.read_text(encoding="utf-8")) or []
+    except Exception:
+        examples = []
+    return {"schema": schema, "examples": examples, "total": len(examples)}
+
+
 @app.get("/api/v1/activity", dependencies=[])
 async def get_activity(request: Request, x_api_key: Optional[str] = Header(None)):
     _require_auth(x_api_key, request=request)
@@ -288,35 +419,8 @@ async def get_models(request: Request, x_api_key: Optional[str] = Header(None)):
     _require_auth(x_api_key, request=request)
     """Lista modelos de OpenRouter con su coste (USD por 1M tokens), ordenados de menor a mayor coste."""
     try:
-        import urllib.request
-        from core.providers import get_openrouter_key, OPENROUTER_URL
-        key = get_openrouter_key()
-        # cachear 10 min para no martillear la API de OpenRouter
-        import time as _t
-        now = _t.time()
-        models = getattr(get_models, "_cache", None)
-        if not (models and now - getattr(get_models, "_ts", 0) < 600):
-            req = urllib.request.Request(f"{OPENROUTER_URL}/models",
-                                        headers={"Authorization": f"Bearer {key}"})
-            with urllib.request.urlopen(req, timeout=20) as r:
-                data = json.loads(r.read().decode()).get("data", [])
-            out = []
-            for m in data:
-                pr = m.get("pricing", {})
-                prompt = float(pr.get("prompt") or 0)      # USD por token
-                comp = float(pr.get("completion") or 0)    # USD por token
-                coste_1m = round((prompt + comp) * 1_000_000, 6)  # USD por 1M tokens
-                if coste_1m < 0:
-                    continue  # modelos sin precio publicado (openrouter/auto, etc.)
-                out.append({
-                    "id": m["id"],
-                    "name": m.get("name", m["id"]),
-                    "coste_1m_usd": coste_1m,
-                })
-            out.sort(key=lambda x: (x["coste_1m_usd"], x["id"]))  # menor a mayor
-            models = out
-            get_models._cache = models
-            get_models._ts = now
+        from core.providers import get_openrouter_models
+        models = get_openrouter_models()
         return {"models": models, "total": len(models),
                 "unidad": "USD por 1M tokens (prompt+completion)"}
     except Exception as e:

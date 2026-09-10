@@ -12,6 +12,7 @@ LLM response hangs the request forever. Use `infer_with_timeout()` so web
 requests degrade fast instead of hanging.
 """
 import os
+import json
 import threading
 from typing import Any, Optional
 
@@ -107,6 +108,82 @@ def _make_openai(model_id: str, base_url: str, api_key: str, temperature: float)
         temperature=temperature,
         max_workers=1,
     )
+
+
+def get_openrouter_models() -> list[dict[str, Any]]:
+    """Lista modelos OpenRouter con precios por 1M (prompt y completion separados).
+
+    Cacheada 10 min. Se comparte entre /models y la estimación de coste
+    de /extract (no duplica llamadas a OpenRouter). Modelos con precios
+    negativos (sin publicar) se filtran.
+    """
+    import time as _t
+    now = _t.time()
+    cached = getattr(get_openrouter_models, "_cache", None)
+    if cached and now - getattr(get_openrouter_models, "_ts", 0) < 600:
+        return list(cached)
+
+    import urllib.request
+    key = get_openrouter_key()
+    req = urllib.request.Request(f"{OPENROUTER_URL}/models",
+                                 headers={"Authorization": f"Bearer {key}"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        data = json.loads(r.read().decode()).get("data", [])
+    out = []
+    for m in data:
+        pr = m.get("pricing", {})
+        prompt = float(pr.get("prompt") or 0)      # USD por token
+        comp = float(pr.get("completion") or 0)    # USD por token
+        if prompt < 0 or comp < 0:
+            continue  # sin precio publicado
+        coste_1m = round((prompt + comp) * 1_000_000, 6)
+        out.append({
+            "id": m["id"],
+            "name": m.get("name", m["id"]),
+            "coste_1m_usd": coste_1m,
+            "prompt_1m_usd": round(prompt * 1_000_000, 6),
+            "completion_1m_usd": round(comp * 1_000_000, 6),
+        })
+    out.sort(key=lambda x: (x["coste_1m_usd"], x["id"]))
+    get_openrouter_models._cache = out
+    get_openrouter_models._ts = now
+    return out
+
+
+def estimate_extract_cost(
+    model_id: str,
+    prompt_chars: int,
+    expected_output_chars: int,
+    n_calls: int = 1,
+    models: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Estimación de coste de una extracción (USD) para un modelo OpenRouter.
+
+    Regla ~4 chars/token (prompt y completion) — aproximación estándar.
+    Devuelve desglose: tokens estimados y coste por componente. Si el
+    modelo no está en la lista, coste=None (no publica precio).
+    """
+    models = models if models is not None else get_openrouter_models()
+    meta = next((m for m in models if m["id"] == model_id), None)
+    if not meta:
+        return {"model_id": model_id, "estimado": False,
+                "prompt_tokens": None, "completion_tokens": None,
+                "coste_estimado_usd": None,
+                "nota": "Modelo sin precio publicado en OpenRouter"}
+    prompt_tokens = max(1, prompt_chars // 4)
+    comp_tokens = max(1, expected_output_chars // 4)
+    coste = (
+        prompt_tokens / 1_000_000 * meta["prompt_1m_usd"]
+        + comp_tokens / 1_000_000 * meta["completion_1m_usd"]
+    ) * n_calls
+    return {
+        "model_id": model_id,
+        "estimado": True,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": comp_tokens,
+        "coste_estimado_usd": round(coste, 8),
+        "por_llamada": n_calls,
+    }
 
 
 def make_provider(spec: Any, temperature: float = 0.05) -> OpenAILanguageModel:

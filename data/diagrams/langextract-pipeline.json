@@ -1,0 +1,254 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Langextract — extracción con contexto Odoo",
+    "output": "langextract-pipeline.html",
+    "viewBox": [
+      1080,
+      620
+    ],
+    "quality_profile": "showcase"
+  },
+  "stages": [
+    {
+      "label": "Fuentes (Odoo)"
+    },
+    {
+      "label": "Preparación"
+    },
+    {
+      "label": "Inferencia LLM"
+    },
+    {
+      "label": "Consenso + validación"
+    },
+    {
+      "label": "Salida e iteración"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "crm_phonecall",
+      "type": "database",
+      "label": "crm_phonecall",
+      "sublabel": "transcripción en description",
+      "stage": 0,
+      "row": 0,
+      "width": 150,
+      "tag": "Odoo Cuidum"
+    },
+    {
+      "id": "res_partner",
+      "type": "database",
+      "label": "res.partner",
+      "sublabel": "campos x_* selection",
+      "stage": 0,
+      "row": 1,
+      "width": 145,
+      "tag": "Odoo Cuidum"
+    },
+    {
+      "id": "adapter",
+      "type": "backend",
+      "label": "adapter Cuidum",
+      "sublabel": "llamada + contexto selection",
+      "stage": 1,
+      "row": 0,
+      "width": 155,
+      "tag": "fetch + enrich"
+    },
+    {
+      "id": "prompt",
+      "type": "backend",
+      "label": "build_prompt",
+      "sublabel": "JSON plano + __quote__",
+      "stage": 1,
+      "row": 1,
+      "width": 150,
+      "tag": "few-shot + existing"
+    },
+    {
+      "id": "examples",
+      "type": "database",
+      "label": "data/examples",
+      "sublabel": "correcciones few-shot",
+      "stage": 2,
+      "row": 2,
+      "width": 130,
+      "tag": "loop de acierto"
+    },
+    {
+      "id": "llm_a",
+      "type": "cloud",
+      "label": "LLM A (elegido)",
+      "sublabel": "extracción principal",
+      "stage": 2,
+      "row": 0,
+      "width": 150,
+      "tag": "deepseek/gemma/…"
+    },
+    {
+      "id": "llm_b",
+      "type": "cloud",
+      "label": "LLM B (auditor)",
+      "sublabel": "independiente",
+      "stage": 2,
+      "row": 1,
+      "width": 145,
+      "tag": "consenso dual"
+    },
+    {
+      "id": "consensus",
+      "type": "backend",
+      "label": "run_dual + evaluate",
+      "sublabel": "normaliza y compara",
+      "stage": 3,
+      "row": 0,
+      "width": 165,
+      "tag": "verdict auto_ok/review"
+    },
+    {
+      "id": "gates",
+      "type": "security",
+      "label": "coerce + grounding",
+      "sublabel": "cita literal + validadores",
+      "stage": 3,
+      "row": 1,
+      "width": 160,
+      "tag": "sin inventar"
+    },
+    {
+      "id": "persist",
+      "type": "database",
+      "label": "hermes_partner_fill",
+      "sublabel": "upsert (n8n_odoo)",
+      "stage": 4,
+      "row": 0,
+      "width": 150,
+      "tag": "campos auto_ok"
+    },
+    {
+      "id": "ui",
+      "type": "frontend",
+      "label": "UI Langextract",
+      "sublabel": "revisión + coste + ejemplo",
+      "stage": 4,
+      "row": 1,
+      "width": 160,
+      "tag": "langextract.tribbe.es"
+    }
+  ],
+  "flows": [
+    {
+      "from": "crm_phonecall",
+      "to": "adapter",
+      "label": "txt",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "from": "res_partner",
+      "to": "adapter",
+      "label": "ctx",
+      "variant": "emphasis",
+      "route": "bottom-channel"
+    },
+    {
+      "from": "adapter",
+      "to": "prompt",
+      "label": "ok",
+      "variant": "emphasis",
+      "route": "vertical-channel"
+    },
+    {
+      "from": "prompt",
+      "to": "llm_a",
+      "label": "A",
+      "variant": "emphasis",
+      "labelAt": [
+        370,
+        314
+      ]
+    },
+    {
+      "from": "prompt",
+      "to": "llm_b",
+      "label": "B",
+      "variant": "default",
+      "route": "straight",
+      "labelAt": [
+        475,
+        314
+      ]
+    },
+    {
+      "from": "llm_a",
+      "to": "consensus",
+      "label": "docA",
+      "variant": "emphasis",
+      "route": "vertical-channel",
+      "labelAt": [
+        656,
+        200
+      ]
+    },
+    {
+      "from": "consensus",
+      "to": "gates",
+      "label": "ok",
+      "variant": "emphasis",
+      "route": "vertical-channel"
+    },
+    {
+      "from": "gates",
+      "to": "ui",
+      "label": "rev",
+      "variant": "security"
+    },
+    {
+      "from": "ui",
+      "to": "examples",
+      "label": "fix",
+      "variant": "dashed",
+      "route": "bottom-channel"
+    },
+    {
+      "from": "examples",
+      "to": "prompt",
+      "label": "fs",
+      "variant": "dashed",
+      "route": "vertical-channel",
+      "labelDx": 20
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Datos reales de Odoo",
+      "items": [
+        "El vocabulario de campos selection viene de ir_model_fields_selection (no texto libre)",
+        "Campos ya poblados en el partner no se re-extraen (existing_data)",
+        "clave/subclave se resuelven a nombre legible"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Consenso + grounding",
+      "items": [
+        "Dos LLM independientes; desacuerdo → revisión humana",
+        "Cada valor requiere cita literal en __quote__",
+        "Validadores deterministas: DNI, teléfono, email, fecha"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Loop de acierto y coste",
+      "items": [
+        "Correcciones humanas se guardan como few-shot y se reinyectan",
+        "Coste estimado por extracción (tokens × precio del modelo)",
+        "Modelo seleccionable por coste en la UI"
+      ]
+    }
+  ]
+}

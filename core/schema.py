@@ -33,6 +33,11 @@ class FieldSpec(BaseModel):
         None, description="Nombre del validador determinista (dni, nie, phone_es, email, date)"
     )
     validator_config: Optional[dict[str, Any]] = None  # p.ej. {"fmt": "%d/%m/%Y"}
+    external_field: Optional[str] = Field(
+        None, description="Columna del sistema externo (CRM/ERP) a la que mapea el campo. "
+        "Si esa columna declara vocabulario cerrado (selection), los valores reales "
+        "restringen 'allowed'."
+    )
 
     @property
     def is_literal(self) -> bool:

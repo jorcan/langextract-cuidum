@@ -89,6 +89,12 @@ def coerce_value(spec: FieldSpec, value: Any) -> Any:
     if t == "literal":
         if not spec.allowed:
             return None
+        if not isinstance(value, str):
+            # El LLM a veces devuelve el código como número (20 -> "20", True -> "1")
+            if isinstance(value, bool):
+                value = "1" if value else "0"
+            else:
+                value = str(value)
         v = _norm(value)
         if v in spec.allowed:
             return v

@@ -46,8 +46,17 @@
 </div>
 
 <div class="panel active" id="p1">
-  <label>Texto (transcripción o nota)</label>
-  <textarea id="texto" rows="6">Operador: ¿Quién la cuida? Cliente: Mi hija Marta, vive conmigo. Su DNI es 45892147V y el teléfono 34612345678.</textarea>
+  <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px">
+      <label>Fuente — call_id de crm_phonecall (lee la transcripción del campo description en Odoo)</label>
+      <input type="text" id="callid" placeholder="p.ej. 6717526 (vacío = usar el texto de abajo)" value="">
+    </div>
+    <label style="display:inline-flex;align-items:center;white-space:nowrap">
+      <input type="checkbox" id="ctxpartner" checked> <span style="margin-left:6px">Contexto partner (restricciones selection reales de Odoo)</span>
+    </label>
+  </div>
+  <label>O texto manual (transcripción o nota)</label>
+  <textarea id="texto" rows="5">Operador: ¿Quién la cuida? Cliente: Mi hija Marta, vive conmigo. Su DNI es 45892147V y el teléfono 34612345678.</textarea>
   <label>Schema</label>
   <select id="schema">
     <option value="partner-fill">partner-fill (familia/cuidador)</option>
@@ -62,12 +71,14 @@
     </label>
   </div>
   <div style="margin-top:8px">
-    <label style="color:var(--muted);font-size:.8rem">Modelo OpenRouter (ordenado por coste, menor → mayor)</label>
+    <label style="color:var(--muted);font-size:.8rem">Modelo OpenRouter (ordenado por coste, menor → mayor) — verás el coste estimado de la extracción abajo</label>
     <select id="modelo" style="width:100%"><option value="">Cargando modelos…</option></select>
   </div>
+  <div id="coste-info" style="margin-top:6px;font-size:.85rem;color:var(--green)" class="warn">Precio del modelo: —</div>
   <div style="margin-top:14px">
     <button onclick="extraer()">Extraer entidades</button>
     <button class="secondary" onclick="document.getElementById('out1').textContent=''">Limpiar</button>
+    <button class="secondary" id="btn-ejemplo" onclick="guardarEjemplo()" disabled>＋ Guardar correcciones como ejemplo (mejorar acierto)</button>
   </div>
   <div class="out" id="out1">Resultado aparecerá aquí…</div>
 </div>
@@ -151,9 +162,33 @@ function fmt(doc){
   }
   return out.join('\n');
 }
+function _fmtCost(v){
+  if(v == null) return '—';
+  if(v === 0) return '$0';
+  if(v < 0.01) return (v*1000).toFixed(2)+'¢';
+  return '$'+v.toFixed(3);
+}
+function _fmtUsd(v){
+  if(v == null) return '—';
+  if(v === 0) return '$0.00';
+  if(v < 0.0001) return '<$0.0001';
+  if(v < 0.01) return '$' + (v*1000).toFixed(2) + 'k';
+  return '$' + v.toFixed(4);
+}
+let _ultimoModelos = [];
+let _ultimoResultado = null;
+function mostrarCosteModelo(){
+  const sel = document.getElementById('modelo');
+  const info = document.getElementById('coste-info');
+  if(!sel.value || !_ultimoModelos.length){ info.textContent='Precio del modelo: —'; return; }
+  const m = _ultimoModelos.find(x=>x.id===sel.value);
+  if(!m){ info.innerHTML='Precio del modelo: <span class="warn">sin precio publicado</span>'; return; }
+  info.textContent = `Precio del modelo: ${m.name} — prompt ${_fmtCost(m.prompt_1m_usd)}/1M · completion ${_fmtCost(m.completion_1m_usd)}/1M`;
+}
 async function poblarModelos(){
   try{
     const d = await _fetch('/api/v1/models');
+    _ultimoModelos = d.models;
     const sel = document.getElementById('modelo');
     // d.models ya viene ordenado por coste asc desde el servidor
     sel.innerHTML = d.models.map(m => {
@@ -164,6 +199,8 @@ async function poblarModelos(){
     const def = d.models.find(m => m.id.startsWith('deepseek/'));
     if(def) sel.value = def.id;
     sel.dataset.cargado = '1';
+    sel.onchange = precioCosteModelo;
+    precioCosteModelo();
     if(sel.dataset.pendiente){ extraer(); }
   }catch(e){
     document.getElementById('modelo').innerHTML = '<option value="openrouter-deepseek">DeepSeek v4 Flash (fallback)</option>';
@@ -181,19 +218,73 @@ async function extraer(){
   startActivity(true);  // empieza el polling para ver el progreso real
   const voz = document.getElementById('modelo');
   if(voz.dataset.cargado !== '1' && !voz.value){ voz.dataset.pendiente='1'; out.innerHTML='⏳ Cargando modelos… (reintenta en un momento)'; return; }
+  const callId = document.getElementById('callid').value.trim();
   const body = {
     texto: document.getElementById('texto').value,
     schema: document.getElementById('schema').value,
     use_dual: document.getElementById('dual').checked,
     max_chars: document.getElementById('recortar').checked ? 6000 : null,
-    provider_a: voz.value ? 'openrouter-model:' + voz.value : 'openrouter-deepseek'
+    provider_a: voz.value ? 'openrouter-model:' + voz.value : 'openrouter-deepseek',
+    call_id: callId ? parseInt(callId,10) : null,
+    use_partner_context: document.getElementById('ctxpartner').checked
   };
   try{
     const d = await _fetch('/api/v1/extract', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-    let s = `VERDICT: ${d.verdict}\nMISSING: ${JSON.stringify(d.doc.missing_fields)}\n\n` + fmt(d.doc);
-    out.innerHTML = s.replace(/\n/g,'<br>');
-    await startActivity(true);  // refresca la actividad al terminar
+    _ultimoResultado = d;
+    const partes = [];
+    // contexto de la llamada + partner (si aplica)
+    if(d.call) partes.push(`📞 Llamada #${d.call.call_id} · ${esc(d.call.name||'')} — partner ${d.call.partner_id} · clave: ${esc(d.call.clave||'—')} · subclave: ${esc(d.call.subclave||'—')} · transcripción ${d.call.description_chars} chars`);
+    if(d.partner) partes.push(`👤 Partner ${d.partner.partner_id} (${esc(d.partner.name||'')}) — selection poblados: ${Object.keys(d.partner.selections_poblados||{}).length ? esc(Object.keys(d.partner.selections_poblados).join(', ')) : 'ninguno'} · vocabulario aplicado en ${d.partner.vocabulario_campos.length} campos selection de Odoo`);
+    if(d.coste_estimado && d.coste_estimado.estimado) partes.push(`💰 Coste estimado: <b>${_fmtUsd(d.coste_estimado.coste_estimado_usd)}</b> (${d.coste_estimado.prompt_tokens} prompt + ${d.coste_estimado.completion_tokens} completion tokens · ${d.coste_estimado.por_llamada || 1} llamada(s) · ${esc(d.coste_estimado.model_id)}) — ~4 chars/token`);
+    partes.push(`VERDICT: ${d.verdict} · MISSING: ${JSON.stringify(d.doc.missing_fields)}`);
+    partes.push(fmtHtml(d.doc));
+    out.innerHTML = partes.join('<br>');
+    // habilitar guardado de ejemplo con los campos ok
+    const btn = document.getElementById('btn-ejemplo');
+    btn.disabled = false;
+    btn.dataset.schema = body.schema;
+    try{ const ex = await _fetch('/api/v1/examples?schema='+encodeURIComponent(body.schema)); btn.title = ex.total+' ejemplos guardados actualmente'; }catch(e){}
+    await startActivity(true); // refresca la actividad al terminar
   }catch(e){ out.textContent = 'Error: '+e.message; }
+}
+function fmtHtml(doc){
+  const partes = doc.extractions.map(e => {
+    const st = e.status==='ok'?'ok':(e.status==='not_found'?'🟡 no_found':'⚠️ '+e.status);
+    let line = `— ${e.field_name}: <span class="${e.status==='ok'?'quote':'warn'}">${esc(JSON.stringify(e.value))}</span> [${st}]`;
+    if(e.verbatim_quote) line += ` <span class="chip">cita: "${esc(e.verbatim_quote)}"</span>`;
+    return line;
+  });
+  return partes.join('<br>');
+}
+function campoValoresOk(doc){
+  // {nombre: valor} de los campos ok — precarga el editor de correcciones
+  const m = {};
+  for(const e of (doc||{}).extractions||[]){ if(e.status==='ok' && e.value != null) m[e.field_name]=e.value; }
+  return m;
+}
+async function guardarEjemplo(){
+  const btn = document.getElementById('btn-ejemplo');
+  const schema = btn.dataset.schema || 'partner-fill';
+  const base = campoValoresOk(_ultimoResultado && _ultimoResultado.doc);
+  const out = document.getElementById('out1');
+  const campos = Object.keys(base);
+  if(!campos.length){ out.innerHTML = '<p class="warn">No hay campos «ok» que guardar como ejemplo (nada extraído). Prueba con otro texto o desactiva el recorte.</p>'; return; }
+  let h = '<p class="quote">Corrige los valores abajo y pulsa «Guardar ejemplo» — el LLM aprenderá de tu corrección en la próxima extracción.</p>';
+  h += campos.map(k => '<div style="margin:4px 0"><label style="display:inline-block;width:230px">'+esc(k)+'</label><input type="text" id="ex-'+esc(k)+'" value="'+esc(base[k])+'" style="width:360px"></div>').join('');
+  h += '<div style="margin-top:8px"><button onclick="enviarEjemplo(\''+esc(schema)+'\')">💾 Guardar ejemplo</button></div>';
+  out.innerHTML = h;
+}
+function enviarEjemplo(schema){
+  const extractions = {};
+  document.querySelectorAll('#out1 input[id^="ex-"]').forEach(i=>{ extractions[i.id.slice(3)] = i.value; });
+  const texto = document.getElementById('texto').value;
+  fetch('/api/v1/examples', {method:'POST', headers:Object.assign({'Content-Type':'application/json'}, _h()), body: JSON.stringify({schema, text: texto, extractions})})
+    .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP '+r.status)))
+    .then(r => {
+      const out = document.getElementById('out1');
+      out.innerHTML = '✅ Ejemplo guardado ('+r.total+' en total en data/examples/<b>'+esc(schema)+'</b>.json). La próxima extracción con este schema incluirá tu corrección como few-shot.<br><br>Pulsa de nuevo «Extraer entidades» para ver el efecto.';
+    })
+    .catch(e => { document.getElementById('out1').textContent = 'Error guardando ejemplo: '+e.message; });
 }
 async function cargarReview(){
   try{

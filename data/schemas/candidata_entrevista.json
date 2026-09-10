@@ -8,12 +8,12 @@
     {"name": "ciudad_residencia", "type": "string", "description": "Ciudad donde vive actualmente (p.ej. Madrid, Barcelona)"},
     {"name": "fecha_nacimiento", "type": "string", "validator": "date", "validator_config": {"fmt": "%Y-%m-%d"}, "description": "Fecha de nacimiento ISO (YYYY-MM-DD). Si dice '3 de octubre del 86' -> 1986-10-03"},
     {"name": "email_contacto", "type": "string", "validator": "email", "description": "Correo si se deletrea ('arroba' -> @, 'punto' -> .); normalizar"},
-    {"name": "nivel_formativo", "type": "literal", "allowed": ["primaria", "secundaria", "bachillerato", "formacion_profesional", "universitario", "no_mencionado"], "description": "Nivel educativo declarado (p.ej. 'Primaria', 'Bachillerato', 'FP')"},
+    {"name": "nivel_formativo", "type": "literal", "external_field": "x_nivel_formativo", "allowed": ["00", "10", "20", "30", "no_mencionado"], "description": "Nivel educativo declarado por la candidata. CÓDIGOS Odoo: 00=Sin estudios, 10=Nivel básico, 20=Estudios secundarios, 30=Estudios post-secundarios. Elige el código que mejor corresponda (p.ej. 'Bachillerato' -> 20)"},
     {"name": "experiencia_anios", "type": "float", "description": "Años totales de experiencia como cuidadora (p.ej. 'llevo 4 años' -> 4.0)"},
     {"name": "modalidad_preferida", "type": "literal", "allowed": ["interna", "externa", "ambas", "no_mencionado"], "description": "Preferencia: interna (convivir), externa (por horas) o ambas"},
     {"name": "patologias_experiencia", "type": "list", "description": "Enfermedades de pacientes que ha cuidado (p.ej. ['Parkinson','diabetes','tensión alta','ictus','cáncer','discapacidad visual'])"},
     {"name": "prestacion_desempleo", "type": "bool", "description": "¿Cobra prestación por desempleo? (true si 'sí')"},
     {"name": "cualidades", "type": "list", "description": "Cualidades que la definen (p.ej. ['dedicada','cariñosa','entregada'])"},
-    {"name": "como_la_conocio", "type": "literal", "allowed": ["internet", "infojobs", "amiga", "referencia", "otro", "no_mencionado"], "description": "Cómo conoció la oferta (p.ej. 'Por una amiga' -> amiga)"}
+    {"name": "como_la_conocio", "type": "literal", "external_field": "x_donde_nos_conocio", "allowed": ["tv", "radio", "carteleria", "folletos", "prensa", "google", "publicidad_buzon", "boca_boca", "facebook", "infojobs", "milanuncios", "jobandtalent", "campanya_facebook_madrid", "campanya_facebook_barcelona", "campanya_verano_estudiantes", "no_mencionado"], "description": "Cómo conoció la oferta. CÓDIGOS Odoo x_donde_nos_conocio: tv=Televisión, radio=Radio, carteleria=Cartelería, folletos=Folletos, prensa=Prensa, google=Google, publicidad_buzon=Publicidad buzón, boca_boca=Boca a boca, facebook=Facebook, infojobs=Infojobs, milanuncios=Milanuncios, jobandtalent=JobandTalent. 'Por una amiga' -> boca_boca"}
   ]
 }
