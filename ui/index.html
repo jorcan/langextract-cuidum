@@ -199,8 +199,8 @@ async function poblarModelos(){
     const def = d.models.find(m => m.id.startsWith('deepseek/'));
     if(def) sel.value = def.id;
     sel.dataset.cargado = '1';
-    sel.onchange = precioCosteModelo;
-    precioCosteModelo();
+    sel.onchange = mostrarCosteModelo;
+    mostrarCosteModelo();
     if(sel.dataset.pendiente){ extraer(); }
   }catch(e){
     document.getElementById('modelo').innerHTML = '<option value="openrouter-deepseek">DeepSeek v4 Flash (fallback)</option>';
