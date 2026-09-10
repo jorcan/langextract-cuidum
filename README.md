@@ -80,6 +80,36 @@ python scripts/golden_eval.py --provider openrouter-deepseek
 python scripts/export_review.py --status pending
 ```
 
+## Servicio web + API (portable, docker-compose)
+
+Servicio FastAPI que expone el core como API y una UI de pruebas, empaquetado
+en un contenedor **portable** (migrar = copiar `deploy/` + `.env` y `up -d`):
+
+```bash
+# Local (este host, solo 127.0.0.1:8654)
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env.local up -d
+
+# Prod-A (VPS/Traefik) + override
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.traefik.yml \
+  --env-file deploy/.env up -d
+```
+
+Endpoints (requieren `X-API-Key` = `API_TOKEN`):
+
+| Endpoint | Qué hace |
+|---|---|
+| `GET /health` | estado del servicio |
+| `GET /api/v1/schemas` | schemas disponibles (partner-fill, cuidum-102) |
+| `POST /api/v1/extract` | extracción síncrona (single o consenso dual) desde texto |
+| `GET /api/v1/stats` | KPIs de observabilidad (n8n_odoo) |
+| `GET /api/v1/review` | cola HITL pendientes |
+| `POST /api/v1/review/{call_id}` | aprobar/rechazar/corregir campos |
+| `GET /` | UI web de pruebas (probador + cola + KPIs) |
+
+Guía de migración y portabilidad: `deploy/README-MIGRACION.md`.
+Verificado E2E (08/09): health, 401 sin token, schemas, extract real con citas,
+stats y POST review con persistencia.
+
 ## Providers
 
 | Nombre | Modelo | Vía |
