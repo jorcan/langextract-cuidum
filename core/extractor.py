@@ -15,6 +15,7 @@ from core.grounding import grounding as grounding_check
 from core.prompt import build_prompt
 from core.schema import FieldSpec
 from core.validators import validate_field
+from core.providers import infer_with_timeout
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +93,9 @@ def extract_entities(
     prompt = build_prompt(text, fields, examples=examples, existing_data=existing_data)
 
     try:
-        results = list(provider.infer([prompt]))
+        results = infer_with_timeout(provider, [prompt])
     except Exception as e:
-        logger.error("Provider error: %s", e)
+        logger.error("Provider error (o timeout): %s", e)
         return ExtractionDoc()
 
     if not results or not results[0]:

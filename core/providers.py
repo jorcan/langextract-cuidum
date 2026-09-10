@@ -3,10 +3,16 @@
 Wraps langextract's provider infrastructure (OpenAI-compatible) so the
 core never talks to an LLM API directly. Route names:
 - "hermes-api"          -> Hermes API Server :8642 -> DeepSeek v4 Flash
+- "openrouter-deepseek" -> OpenRouter -> deepseek/deepseek-v4-flash-0731
 - "openrouter-gemma4"   -> OpenRouter -> google/gemma-4-31b-it (consenso B)
 - {"model_id", "base_url", "api_key"} -> any OpenAI-compatible endpoint
+
+⚠️ langextract's OpenAI client has NO timeout (verified) — a slow/infinite
+LLM response hangs the request forever. Use `infer_with_timeout()` so web
+requests degrade fast instead of hanging.
 """
 import os
+import threading
 from typing import Any, Optional
 
 # langextract se instala con DOS layouts según la fuente:
@@ -25,6 +31,46 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1"
 DEEPSEEK_DEFAULT = "deepseek/deepseek-v4-flash-0731"
 GEMMA4_DEFAULT = "google/gemma-4-31b-it"
 _HERMES_FALLBACK_KEY = "ht-jorge-a78e45a5aba14dc6"
+
+# Timeout por defecto para llamadas LLM singulares (segundos).
+DEFAULT_LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "90"))
+
+
+class LLMTimeoutError(TimeoutError):
+    """Llamada al LLM excedió el timeout."""
+
+
+def run_with_timeout(fn, timeout: float = DEFAULT_LLM_TIMEOUT, *args, **kwargs):
+    """Ejecuta fn(*args, **kwargs) en un hilo y corta si excede timeout."""
+    result, exc = {}, {}
+
+    def _run():
+        try:
+            result["v"] = fn(*args, **kwargs)
+        except BaseException as e:  # noqa: BLE001
+            exc["e"] = e
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        raise LLMTimeoutError(f"Llamada al LLM excede {timeout}s")
+    if "e" in exc:
+        raise exc["e"]
+    return result.get("v")
+
+
+def infer_with_timeout(model: OpenAILanguageModel, prompts: list[str],
+                       timeout: float = DEFAULT_LLM_TIMEOUT):
+    """model.infer(prompts) con timeout — degrada en vez de colgar.
+
+    Materializa el resultado (generator -> list) DENTRO del hilo, para que
+    el timeout corte también la iteración perezosa.
+    """
+    def _infer_all():
+        out = model.infer(prompts)
+        return list(out) if not isinstance(out, list) else out
+    return run_with_timeout(_infer_all, timeout)
 
 
 def _read_key(env_var: str, config_key: str, fallback: str = "") -> str:

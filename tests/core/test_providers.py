@@ -59,3 +59,42 @@ class TestMakeProvider:
     def test_temperature_passthrough(self):
         make_provider("hermes-api", temperature=0.0)
         assert DummyModel.captured["temperature"] == 0.0
+
+
+class TestInferWithTimeout:
+    def test_generator_materialized(self):
+        """infer_with_timeout debe devolver lista (no generator) y consumir el generador."""
+        class GenProvider:
+            def infer(self, prompts):
+                yield type("O", (), {"output": "x"})()
+
+        from core.providers import infer_with_timeout
+        out = infer_with_timeout(GenProvider(), ["p"], timeout=5)
+        assert isinstance(out, list) and len(out) == 1
+
+    def test_timeout_raises(self):
+        import time
+
+        class SlowProvider:
+            def infer(self, prompts):
+                time.sleep(10)
+                return []
+
+        from core.providers import infer_with_timeout, LLMTimeoutError
+        t0 = time.time()
+        try:
+            infer_with_timeout(SlowProvider(), ["p"], timeout=1)
+            raise AssertionError("debió lanzar LLMTimeoutError")
+        except LLMTimeoutError:
+            assert time.time() - t0 < 3, "timeout no respetado"
+
+    def test_error_propagates(self):
+        class ErrProvider:
+            def infer(self, prompts):
+                raise RuntimeError("boom")
+        from core.providers import infer_with_timeout
+        try:
+            infer_with_timeout(ErrProvider(), ["p"], timeout=5)
+            raise AssertionError("debió propagar RuntimeError")
+        except RuntimeError:
+            pass
