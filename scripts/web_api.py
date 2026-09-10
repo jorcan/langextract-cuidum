@@ -51,18 +51,18 @@ app = FastAPI(title="Langextract Service", version="1.0.0")
 # ── Seguridad ────────────────────────────────────────────────────────────
 def _auth_ok(x_api_key: Optional[str]) -> bool:
     if not API_TOKEN:
-        # Sin token configurado: solo acepta en localhost (seguridad por red)
         return False
-    if not x_api_key:
-        return False
-    return hmac.compare_digest(x_api_key, API_TOKEN)
+    if x_api_key and hmac.compare_digest(x_api_key, API_TOKEN):
+        return True
+    return False
 
 
-def _require_auth(x_api_key: Optional[str] = Header(None)):
+def _require_auth(x_api_key: Optional[str] = Header(None), request: Request = None):
     if not API_TOKEN:
-        # Modo sin token: permitir solo si el request viene de localhost
         raise HTTPException(503, "API_TOKEN no configurado en el servidor")
-    if not _auth_ok(x_api_key):
+    # Header X-API-Key  O  cookie httpOnly same-origin (seteada al servir /)
+    key = x_api_key or (request.cookies.get("lxt_api_token") if request else None)
+    if not _auth_ok(key):
         raise HTTPException(401, "API key inválida o ausente")
 
 
@@ -110,8 +110,8 @@ def health():
 
 
 @app.get("/api/v1/schemas", dependencies=[] )
-async def get_schemas(x_api_key: Optional[str] = Header(None)):
-    _require_auth(x_api_key)
+async def get_schemas(request: Request, x_api_key: Optional[str] = Header(None)):
+    _require_auth(x_api_key, request=request)
     fields = _load_fields("partner-fill")
     return {"schemas": [{
         "id": "partner-fill",
@@ -121,8 +121,8 @@ async def get_schemas(x_api_key: Optional[str] = Header(None)):
 
 
 @app.post("/api/v1/extract", dependencies=[])
-async def extract(req: ExtractRequest, x_api_key: Optional[str] = Header(None)):
-    _require_auth(x_api_key)
+async def extract(request: Request, req: ExtractRequest, x_api_key: Optional[str] = Header(None)):
+    _require_auth(x_api_key, request=request)
     fields = _load_fields(req.schema)
     if req.use_dual and req.provider_b:
         from core.consensus import run_dual
@@ -145,8 +145,8 @@ async def extract(req: ExtractRequest, x_api_key: Optional[str] = Header(None)):
 
 
 @app.get("/api/v1/stats", dependencies=[])
-async def get_stats(x_api_key: Optional[str] = Header(None)):
-    _require_auth(x_api_key)
+async def get_stats(request: Request, x_api_key: Optional[str] = Header(None)):
+    _require_auth(x_api_key, request=request)
     try:
         from scripts.obs_dashboard import collect
         return collect()
@@ -156,8 +156,8 @@ async def get_stats(x_api_key: Optional[str] = Header(None)):
 
 
 @app.get("/api/v1/review", dependencies=[])
-async def list_review(status: str = "pending", x_api_key: Optional[str] = Header(None)):
-    _require_auth(x_api_key)
+async def list_review(request: Request, status: str = "pending", x_api_key: Optional[str] = Header(None)):
+    _require_auth(x_api_key, request=request)
     import os
     import psycopg2
     from dotenv import load_dotenv
@@ -186,8 +186,8 @@ async def list_review(status: str = "pending", x_api_key: Optional[str] = Header
 
 
 @app.post("/api/v1/review/{call_id}", dependencies=[])
-async def decide(call_id: int, req: ReviewRequest, x_api_key: Optional[str] = Header(None)):
-    _require_auth(x_api_key)
+async def decide(request: Request, call_id: int, req: ReviewRequest, x_api_key: Optional[str] = Header(None)):
+    _require_auth(x_api_key, request=request)
     import os
     import psycopg2
     from dotenv import load_dotenv
@@ -232,7 +232,13 @@ async def ui_index():
     _ui = UI_DIR / "index.html"
     if not _ui.exists():
         return JSONResponse({"detail": "UI no encontrada (assets no copiados)"}, status_code=404)
-    return FileResponse(_ui, media_type="text/html")
+    # El token de API se entrega como cookie httpOnly MISM-ORIGIN (no visible en JS/HTML).
+    # El JS hace fetch('/api/...') y el navegador envía la cookie automáticamente.
+    # CORS: solo mismo origen — la cookie httpOnly + SameSite=Strict impide usarla desde
+    # otros orígenes. La API acepta la cookie como alternativa al header X-API-Key.
+    resp = FileResponse(_ui, media_type="text/html")
+    resp.set_cookie("lxt_api_token", API_TOKEN, httponly=True, samesite="strict", secure=True, max_age=3600)
+    return resp
 
 
 if __name__ == "__main__":

@@ -80,6 +80,8 @@
 <script>
 const D = {};
 function _h(){
+  // El token viaja como cookie httpOnly same-origin (la setea el servidor al servir /).
+  // Solo añadimos el header X-API-Key si el usuario teclea una clave explícita.
   const k = document.getElementById('apikey').value.trim();
   return k ? {'X-API-Key': k} : {};
 }
