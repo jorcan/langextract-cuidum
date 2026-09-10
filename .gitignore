@@ -29,3 +29,5 @@ config.local.yaml
 
 # langextract has its own git repo; use pip install google-langextract or submodule
 langextract/
+
+deploy/.env.local

@@ -1,0 +1,24 @@
+# Override SOLO para Prod-A (57.129.137.207): une el servicio a la red
+# traefik-public y publica el host con HTTPS (Let's Encrypt) vía Traefik.
+#
+# Uso: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.traefik.yml ...
+#
+# Ajusta HOST_TRAEFIK en tu .env (p.ej. obs-langextract.tribbe.es).
+
+services:
+  langextract:
+    networks:
+      - default
+      - traefik-public
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.http.routers.langextract.rule=Host(`${HOST_TRAEFIK:-obs-langextract.tribbe.es}`)"
+      - "traefik.http.routers.langextract.entrypoints=websecure"
+      - "traefik.http.routers.langextract.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.langextract.priority=210"
+      - "traefik.http.services.langextract.loadbalancer.server.port=8654"
+
+networks:
+  traefik-public:
+    external: true

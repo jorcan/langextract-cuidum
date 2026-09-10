@@ -9,8 +9,16 @@ core never talks to an LLM API directly. Route names:
 import os
 from typing import Any, Optional
 
-from langextract.langextract.providers import load_builtins_once, load_plugins_once
-from langextract.langextract.providers.openai import OpenAILanguageModel
+# langextract se instala con DOS layouts según la fuente:
+#   - repo clonado / editable : namespace `langextract.langextract.*`
+#   - pip de PyPI (>=1.5.0)   : plano `langextract.*`
+# Import con fallback para que el código sea portable entre ambos.
+try:  # namespace (repo)
+    from langextract.langextract.providers import load_builtins_once, load_plugins_once
+    from langextract.langextract.providers.openai import OpenAILanguageModel
+except ImportError:  # plano (PyPI)
+    from langextract.providers import load_builtins_once, load_plugins_once
+    from langextract.providers.openai import OpenAILanguageModel
 
 HERMES_API_URL = "http://127.0.0.1:8642/v1"
 OPENROUTER_URL = "https://openrouter.ai/api/v1"

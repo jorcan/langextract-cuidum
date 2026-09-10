@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LangExtract — Prueba en web</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#e6edf3;--muted:#8b949e;
+        --accent:#58a6ff;--green:#3fb950;--orange:#d29922;--red:#f85149;}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:ui-monospace,'SF Mono',Menlo,monospace,sans-serif;background:var(--bg);color:var(--text);padding:24px}
+  h1{font-size:1.4rem;color:var(--accent)} h1 small{color:var(--muted)}
+  .tabs{display:flex;gap:8px;margin-bottom:18px}
+  .tab{padding:8px 18px;border-radius:8px;cursor:pointer;background:var(--card);border:1px solid var(--border);color:var(--muted);font-weight:600}
+  .tab.active{background:var(--accent);color:#0d1117;border-color:transparent}
+  .panel{display:none}.panel.active{display:block}
+  label{display:block;margin:10px 0 4px;color:var(--muted);font-size:.8rem}
+  textarea,select,input[type=text]{width:100%;background:#0a0d12;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:.9rem}
+  textarea{min-height:120px}
+  button{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 22px;font-weight:700;cursor:pointer}
+  button.secondary{background:var(--card);color:var(--muted);border:1px solid var(--border)}
+  .out{white-space:pre-wrap;background:#0a0d12;border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:12px;font-size:.85rem;max-height:420px;overflow:auto}
+  .quote{color:var(--green)} .warn{color:var(--orange)}
+  table{width:100%;border-collapse:collapse;font-size:.85rem}
+  th,td{border:1px solid var(--border);padding:7px 10px}th{background:#1c2129;color:var(--muted)}
+  .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:.75rem}
+  .badge.pending{background:#3d2c00;color:var(--orange)}.badge.ok{background:#0f2e1a;color:var(--green)}
+  .kpi{display:inline-block;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin:4px 6px}
+  .kpi b{font-size:1.2rem}
+  .chip{display:inline-block;padding:2px 8px;border-radius:6px;background:#1c2129;color:var(--muted);font-size:.75rem;margin:2px}
+</style>
+</head>
+<body>
+<h1>◉ LangExtract <small>— probar extracción + revisión HITL</small></h1>
+
+<div style="margin-bottom:14px">
+  <label>API key (X-API-Key)</label>
+  <input type="text" id="apikey" placeholder="deja vacío si localhost sin token" style="width:340px">
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-p="p1" onclick="tab('p1')">🧪 Probar extracción</div>
+  <div class="tab" data-p="p2" onclick="tab('p2')">🧾 Cola de revisión</div>
+  <div class="tab" data-p="p3" onclick="tab('p3')">📊 Estado</div>
+</div>
+
+<div class="panel active" id="p1">
+  <label>Texto (transcripción o nota)</label>
+  <textarea id="texto" rows="6">Operador: ¿Quién la cuida? Cliente: Mi hija Marta, vive conmigo. Su DNI es 45892147V y el teléfono 34612345678.</textarea>
+  <label>Schema</label>
+  <select id="schema">
+    <option value="partner-fill">partner-fill (bloque cuidador)</option>
+    <option value="cuidum-102">cuidum-102 (102 entidades)</option>
+  </select>
+  <div style="margin-top:10px">
+    <label style="display:inline-flex;align-items:center">
+      <input type="checkbox" id="dual" checked> <span style="margin-left:6px">Consenso dual (DeepSeek + Gemma4)</span>
+    </label>
+  </div>
+  <div style="margin-top:14px">
+    <button onclick="extraer()">Extraer entidades</button>
+    <button class="secondary" onclick="document.getElementById('out1').textContent=''">Limpiar</button>
+  </div>
+  <div class="out" id="out1">Resultado aparecerá aquí…</div>
+</div>
+
+<div class="panel" id="p2">
+  <div class="kpi">Pendientes <b id="kpi-pending">—</b></div>
+  <div class="kpi">Aprobadas <b id="kpi-approved">—</b></div>
+  <div class="kpi">Rechazadas <b id="kpi-rejected">—</b></div>
+  <button style="margin-left:8px" onclick="cargarReview()">Refrescar cola</button>
+  <div style="margin-top:10px" id="review-container"><p class="warn">Sin cargar todavía. Pulsa "Refrescar cola".</p></div>
+</div>
+
+<div class="panel" id="p3">
+  <button onclick="cargarStats()">Cargar KPIs</button>
+  <div style="margin-top:10px" id="stats-container"></div>
+</div>
+
+<script>
+const D = {};
+function _h(){
+  const k = document.getElementById('apikey').value.trim();
+  return k ? {'X-API-Key': k} : {};
+}
+function tab(id){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.p===id));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active', p.id===id));
+}
+async function _fetch(url, opts){
+  const o = Object.assign({headers:_h()}, opts||{});
+  const r = await fetch(url, o);
+  if(!r.ok){ let t='error '+r.status; try{ t+= ': '+JSON.stringify(await r.json()); }catch(e){} throw new Error(t); }
+  return r.json();
+}
+function fmt(doc){
+  const out = [];
+  for(const e of doc.extractions){
+    const st = e.status==='ok'?'ok':(e.status==='not_found'?'🟡 no_found':'⚠️ '+e.status);
+    let line = `— ${e.field_name}: <span class="${e.status==='ok'?'quote':'warn'}">${JSON.stringify(e.value)}</span> [${st}]`;
+    if(e.verbatim_quote) line += ` <span class="chip">cita: "${e.verbatim_quote}"</span>`;
+    out.push(line);
+  }
+  return out.join('\n');
+}
+async function extraer(){
+  const out = document.getElementById('out1');
+  out.classList.remove('quote','warn');
+  out.textContent = 'Extrayendo… (puede tardar ~10-30s)';
+  const body = {
+    texto: document.getElementById('texto').value,
+    schema: document.getElementById('schema').value,
+    use_dual: document.getElementById('dual').checked
+  };
+  try{
+    const d = await _fetch('/api/v1/extract', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    let s = `VERDICT: ${d.verdict}\nMISSING: ${JSON.stringify(d.doc.missing_fields)}\n\n` + fmt(d.doc);
+    out.innerHTML = s.replace(/\n/g,'<br>');
+  }catch(e){ out.textContent = 'Error: '+e.message; }
+}
+async function cargarReview(){
+  try{
+    const d = await _fetch('/api/v1/review?status=pending');
+    document.getElementById('kpi-pending').textContent = d.items.length;
+    const c = document.getElementById('review-container');
+    if(!d.items.length){ c.innerHTML='<p class="warn">No hay pendientes 🎉</p>'; return; }
+    let h = '<table><thead><tr><th>call_id</th><th>partner</th><th>consenso</th><th>campos</th><th>creado</th></tr></thead><tbody>';
+    d.items.forEach(it=>{
+      const campos = Object.entries(it.extracted_data);
+      h += `<tr><td>${it.call_id}</td><td>${it.partner_id}</td><td>${it.consensus_status}</td><td>${campos.length}</td><td>${String(it.created_at).slice(0,16)}</td></tr>`;
+      campos.forEach(([k,v])=>{
+        h += `<tr style="background:#161b22"><td colspan=1></td><td colspan=4>${k}: <span class="quote">${JSON.stringify(v)}</span> ${it.evidence[k]?'<span class="chip">cita: "'+it.evidence[k].quote+'"</span>':''}</td></tr>`;
+      });
+    });
+    h += '</tbody></table>';
+    c.innerHTML = h;
+  }catch(e){ document.getElementById('review-container').innerHTML = '<p class="warn">Error: '+e.message+'</p>'; }
+}
+async function cargarStats(){
+  try{
+    const d = await _fetch('/api/v1/stats');
+    const c = document.getElementById('stats-container');
+    c.innerHTML = `<div class="kpi">Procesadas <b>${d.total}</b></div>
+      <div class="kpi">Campos/registro <b>${d.avg_fields||'—'}</b></div>
+      <div class="kpi">Última <b>${String(d.last_extraction||'—').slice(0,16)}</b></div>
+      <div class="kpi">Errores <b>${d.errors}</b></div>
+      <div class="kpi">HITL pendientes <b>${d.hitl_total}</b></div>`;
+  }catch(e){ document.getElementById('stats-container').innerHTML = '<p class="warn">Error: '+e.message+'</p>'; }
+}
+</script>
+</body>
+</html>
